@@ -43,7 +43,6 @@ object PriceFormatter {
     }
 
     private fun formatPlain(bd: BigDecimal, maxDecimals: Int): String {
-        // Format with fixed scale then trim unnecessary trailing zeros (keep at most maxDecimals).
         val symbols = DecimalFormatSymbols(Locale.US).apply { decimalSeparator = '.' }
         val pattern = if (maxDecimals <= 0) "0" else "0." + "#".repeat(maxDecimals)
         val df = DecimalFormat(pattern, symbols).apply {
@@ -54,6 +53,7 @@ object PriceFormatter {
         return if (out == "-0" || out == "-0.0") "0" else out
     }
 
+    /** ROI/display percent: exactly 2 decimal places (e.g. +1.23%, -4.56%). */
     fun formatPercent(value: Double?): String {
         if (value == null || value.isNaN() || value.isInfinite()) return "--"
         val sign = if (value > 0) "+" else ""
@@ -62,13 +62,14 @@ object PriceFormatter {
 
     fun formatUsdt(value: Double?): String {
         if (value == null || value.isNaN() || value.isInfinite()) return "-- USDT"
-        return "${String.format(Locale.US, "%.4f", value)} USDT"
+        return "${String.format(Locale.US, "%.2f", value)} USDT"
     }
 
+    /** Unrealized/realized PNL display: exactly 2 decimal places (e.g. +12.35 USDT). */
     fun formatPnl(value: Double?): String {
         if (value == null || value.isNaN() || value.isInfinite()) return "--"
         val sign = if (value > 0) "+" else ""
-        return "$sign${String.format(Locale.US, "%.4f", value)} USDT"
+        return "$sign${String.format(Locale.US, "%.2f", value)} USDT"
     }
 
     fun formatQty(value: Double?): String {

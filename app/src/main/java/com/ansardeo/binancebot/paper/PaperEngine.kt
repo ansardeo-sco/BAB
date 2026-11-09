@@ -2,468 +2,500 @@ package com.ansardeo.binancebot.paper
 
 import android.content.Context
 import androidx.room.withTransaction
+import com.ansardeo.binancebot.data.LeverageConfig
 import com.ansardeo.binancebot.data.LocalCoinSettings
 import com.ansardeo.binancebot.data.LocalCoinSettingsStore
 import com.ansardeo.binancebot.data.TradingStage
 import com.ansardeo.binancebot.paper.db.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.UUID
+import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 
 /**
- * BAB trading engine (stage-isolated).
- * - Stage 1: live public market prices + virtual 100 USDT. SIMULATED ONLY. No API keys, no real orders.
- * - Stage 2: demo/simulated trading. No real funds. SIMULATED ONLY.
- * - Stage 3: live trading scaffold. DISABLED by default. Real order submission is NOT implemented in this build;
- *   Stage 3 execution paths are blocked to prevent accidental real orders. Full signed Binance integration requires
- *   explicit secure setup and must never be enabled implicitly.
- * All stages are isolated by [stage] in the database.
+ * BAB trading engine (stage-isolated, local simulation for Stage 1/2).
+ * - All entries are LIMIT orders (manual, averaging, opposite, re-entry). Never MARKET.
+ * - One cycle per symbol/direction (open/pending/active).
+ * - Max 1 averaging per cycle. After averaging: TP recalculated from weighted avg of actual filled qtys; existing entry SLs remain fixed.
+ * - Every executed entry gets its own independent fixed SL (from actual fill price + leverage SL%).
+ * - Individual SL closes only that entry's remaining qty. Other entries remain.
+ * - One cycle-level TP closes remaining cycle qty. On cycle TP, cancel + verify all remaining entry SL orders.
+ * - Re-entry after TP creates a new cycle (new Cycle ID), after pullback, as LIMIT.
+ * - Opposite-side on averaging fill: at averaging fill price, equal margin, only if no opposite-side open position for symbol and opposite enabled.
+ * - Stage 1/2 never submit real exchange orders. Stage 3 is disabled/blocked.
  */
 class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = TradingStage.STAGE_1) {
     private val dao: PaperDao = db.dao()
     private val mutex = Mutex()
-    private val feeRate = 0.0004 // 0.04% taker assumption (simulated; Stage 3 would use exchange fills)
-    private val stageId = stage.id
+    private val feeRate = 0.0004
 
-    private fun assertSimulatedExecutionAllowed() {
-        // SAFETY: Stage 1 and Stage 2 are always simulated. Stage 3 must never submit real orders from this engine.
-        if (stage == TradingStage.STAGE_3) {
-            throw IllegalStateException("Stage 3 Live Trading is disabled in this build. No real Binance orders are submitted. Configure secure live integration and explicit authorization before enabling.")
-        }
-    }
-
-    private fun newWallet() = PaperWalletEntity(
-        stage = stageId,
-        startingBalance = if (stage == TradingStage.STAGE_3) 0.0 else 100.0,
-        availableBalance = if (stage == TradingStage.STAGE_3) 0.0 else 100.0,
-        reservedMargin = 0.0,
-        realizedPnl = 0.0,
-        updatedAt = now()
+    data class OpenLimitRequest(
+        val symbol: String,
+        val direction: String,
+        val intendedLimitPrice: Double,
+        val margin: Double,
+        val leverage: Int,
+        val sourceType: String = "MANUAL",
+        val sourceCycleId: Long? = null,
     )
 
-    suspend fun ensureWallet(): PaperWalletEntity = mutex.withLock {
-        val w = ensureWalletUnlocked()
-        synchronizeStateUnlocked()
-        w
-    }
+    data class EngineResult(val ok: Boolean, val message: String, val cycleId: Long? = null, val entryId: Long? = null, val orderId: Long? = null)
 
-    suspend fun getWallet(): PaperWalletEntity = mutex.withLock { ensureWalletUnlocked() }
-
-    suspend fun resetWallet() = mutex.withLock {
-        assertSimulatedExecutionAllowed()
-        db.withTransaction {
-            val t = now()
-            dao.upsertWallet(newWallet().copy(updatedAt = t))
-            for (o in dao.getActiveOrders(stageId)) dao.updateOrder(o.copy(status = "CANCELLED", updatedAt = t))
-            for (p in dao.getPendingPlans(stageId)) dao.updatePlan(p.copy(status = "CANCELLED", updatedAt = t))
-            dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = null, symbol = null, type = "WALLET_RESET", message = "${stage.shortLabel} wallet reset to ${fmt(newWallet().availableBalance)} USDT (active orders/pipeline cancelled)", createdAt = t))
-        }
+    suspend fun getWallet(): PaperWalletEntity = mutex.withLock {
+        db.withTransaction { ensureWallet() }
     }
 
     suspend fun hasPendingWork(): Boolean = mutex.withLock {
-        synchronizeStateUnlocked()
-        dao.getActiveCycles(stageId).isNotEmpty() || dao.getActiveOrders(stageId).isNotEmpty() || dao.countPendingPlans(stageId) > 0
+        db.withTransaction {
+            dao.getActiveCycles(stage.id).isNotEmpty() ||
+                dao.getPendingReentryPlans(stage.id).isNotEmpty() ||
+                dao.getActiveOrders(stage.id).isNotEmpty()
+        }
     }
 
-    suspend fun openInitial(
+    suspend fun resetDemo(starting: Double = 100.0): EngineResult = mutex.withLock {
+        db.withTransaction {
+            val now = System.currentTimeMillis()
+            dao.upsertWallet(PaperWalletEntity(stage = stage.id, startingBalance = starting, availableBalance = starting, reservedMargin = 0.0, realizedPnl = 0.0, updatedAt = now))
+            val msg = if (stage == TradingStage.STAGE_1) "Virtual balance reset to $starting USDT (Stage 1)." else "Demo balance reset to $starting USDT (Stage 2, simulated)."
+            dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = null, symbol = null, type = "RESET", message = msg, dedupeKey = "reset-${stage.id}-$now"))
+            EngineResult(true, msg)
+        }
+    }
+
+    /** Place a manual initial LIMIT entry (never MARKET). */
+    suspend fun openInitialLimit(
         context: Context,
         symbol: String,
         direction: String,
-        marginInput: Double,
-        leverageInput: Int,
-        price: Double,
-        sourceCycleId: Long? = null,
-        sourceType: String? = "INITIAL",
-    ): Result<PaperCycleEntity> = mutex.withLock {
-        openInitialUnlocked(context, symbol, direction, marginInput, leverageInput, price, sourceCycleId, sourceType)
+        margin: Double,
+        leverage: Int,
+        intendedLimitPrice: Double,
+    ): EngineResult {
+        assertSimulatedExecutionAllowed()
+        return mutex.withLock {
+            db.withTransaction {
+                placeInitialLimitLocked(context, symbol, direction, margin, leverage, intendedLimitPrice, sourceType = "MANUAL", sourceCycleId = null)
+            }
+        }
     }
 
-    private suspend fun openInitialUnlocked(
+    /** Legacy-compatible entry point from old UI; treated as LIMIT at provided price (must be user/intended price). */
+    suspend fun openInitial(context: Context, symbol: String, direction: String, margin: Double, leverage: Int, price: Double): PaperCycleEntity? {
+        val r = openInitialLimit(context, symbol, direction, margin, leverage, intendedLimitPrice = price)
+        return r.cycleId?.let { dao.getCycle(it) }
+    }
+
+    suspend fun processAll(context: Context, prices: Map<String, Double>) {
+        assertSimulatedExecutionAllowed()
+        if (prices.isEmpty()) return
+        mutex.withLock {
+            db.withTransaction {
+                val now = System.currentTimeMillis()
+                ensureWallet()
+                // Pending entry LIMIT orders (initial/averaging/opposite/reentry)
+                dao.getPendingEntries(stage.id).forEach { entry ->
+                    val mark = prices[entry.symbol.uppercase()] ?: return@forEach
+                    tryFillPendingEntryLocked(context, entry, mark, now)
+                }
+                // Re-entry plans waiting for pullback
+                dao.getPendingReentryPlans(stage.id).forEach { plan ->
+                    val mark = prices[plan.symbol.uppercase()] ?: return@forEach
+                    processReentryPlanLocked(context, plan, mark, now)
+                }
+                // Active cycles: cycle TP, entry SLs, liquidation
+                dao.getActiveCycles(stage.id).forEach { c ->
+                    val mark = prices[c.symbol.uppercase()] ?: return@forEach
+                    processActiveCycleLocked(context, c.copy(lastProcessedMark = mark, updatedAt = now), mark, now)
+                }
+            }
+        }
+    }
+
+    private fun placeInitialLimitLocked(
         context: Context,
         symbol: String,
         direction: String,
-        marginInput: Double,
-        leverageInput: Int,
-        price: Double,
+        margin: Double,
+        leverage: Int,
+        intendedLimitPrice: Double,
+        sourceType: String,
         sourceCycleId: Long?,
-        sourceType: String?,
-    ): Result<PaperCycleEntity> {
-        return try {
-            assertSimulatedExecutionAllowed() // blocks Stage 3 real-order risk in this build
-            val sym = symbol.uppercase()
-            val dir = direction.uppercase()
-            require(dir == "LONG" || dir == "SHORT") { "Direction must be LONG or SHORT" }
-            require(price > 0 && price.isFinite()) { "Invalid live price for $sym" }
-            val s = LocalCoinSettingsStore.load(context, sym)
-            if (dir == "LONG" && !s.enabledLong) return Result.failure(IllegalStateException("LONG is disabled for $sym"))
-            if (dir == "SHORT" && !s.enabledShort) return Result.failure(IllegalStateException("SHORT is disabled for $sym"))
-            val margin = if (marginInput > 0) marginInput else s.marginAmount
-            require(margin in 0.5..100000.0) { "Margin must be valid (0.5+ USDT)" }
-            val leverage = if (leverageInput > 0) leverageInput.coerceIn(1, 125) else s.leverage
-            val qty = (margin * leverage) / price
-            require(qty > 0 && qty.isFinite()) { "Calculated quantity is invalid" }
-            val notional = qty * price
-            val fee = notional * feeRate
-            val tpPrice = tpPrice(dir, price, s.tpPercent)
-            val slPrice = slPrice(dir, price, s.slPercent)
-            val t = now()
+    ): EngineResult {
+        val sym = symbol.uppercase().trim()
+        val dir = direction.uppercase().trim()
+        require(dir == "LONG" || dir == "SHORT") { "Direction must be LONG or SHORT" }
+        val lev = LeverageConfig.requireSupported(leverage)
+        require(intendedLimitPrice.isFinite() && intendedLimitPrice > 0.0) { "Intended entry price must be greater than 0" }
+        require(margin.isFinite() && margin > 0.0) { "Margin must be greater than 0" }
+        val settings = runCatching { LocalCoinSettingsStore.load(context, sym) }.getOrNull()
+        val profile = LeverageConfig.requireProfile(lev)
+        val now = System.currentTimeMillis()
+        val wallet = ensureWallet()
+        val required = margin + (margin * lev * feeRate)
+        if (wallet.availableBalance + 1e-9 < required) return EngineResult(false, "Insufficient simulated balance. Required ~${fmt(required)} USDT.")
+        val open = dao.countOpenCycles(stage.id, sym, dir)
+        if (open > 0) return EngineResult(false, "An open/pending $dir cycle already exists for $sym in ${stage.shortLabel}.")
+        val cycle = PaperCycleEntity(
+            stage = stage.id, symbol = sym, direction = dir, status = "PENDING_ENTRY", leverage = lev,
+            initialMargin = margin, averagingMargin = settings?.averagingMargin?.takeIf { it > 0 } ?: margin,
+            oppositeMargin = settings?.oppositeMargin?.takeIf { it > 0 } ?: margin,
+            tpPercent = profile.tpPercent, slPercent = profile.slPercent, averagingPercent = profile.averagingPercent, reentryPercent = profile.reentryPullbackPercent,
+            averagingEnabled = settings?.averagingEnabled ?: true, reentryEnabled = settings?.reentryEnabled ?: true, oppositeEnabled = settings?.oppositeEnabled ?: true,
+            sourceCycleId = sourceCycleId, sourceType = sourceType, createdAt = now, updatedAt = now
+        )
+        val cycleId = dao.insertCycle(cycle)
+        dao.upsertWallet(wallet.copy(availableBalance = wallet.availableBalance - required, reservedMargin = wallet.reservedMargin + margin, updatedAt = now))
+        val clientOrderId = "entry-${stage.id}-$cycleId-initial-$now-${UUID.randomUUID()}"
+        val entry = PaperEntryEntity(
+            stage = stage.id, cycleId = cycleId, symbol = sym, direction = dir, entryType = "INITIAL", status = "PENDING",
+            margin = margin, leverage = lev, intendedPrice = intendedLimitPrice, clientOrderId = clientOrderId,
+            createdAt = now, updatedAt = now
+        )
+        val entryId = dao.insertEntry(entry)
+        val order = PaperOrderEntity(
+            stage = stage.id, cycleId = cycleId, entryId = entryId, symbol = sym, direction = dir,
+            side = if (dir == "LONG") "BUY" else "SELL", orderType = "ENTRY_LIMIT", triggerPrice = intendedLimitPrice,
+            limitPrice = intendedLimitPrice, quantity = 0.0, status = "ACTIVE", clientOrderId = clientOrderId,
+            createdAt = now, updatedAt = now
+        )
+        val orderId = dao.insertOrder(order)
+        dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycleId, symbol = sym, type = "ENTRY_LIMIT_PLACED",
+            message = "Placed INITIAL LIMIT $dir for $sym @ ${fmtPx(intendedLimitPrice)} (margin $margin, ${lev}x). ${stage.shortLabel} simulated only; no real order submitted.",
+            price = intendedLimitPrice, dedupeKey = "place-$clientOrderId"))
+        return EngineResult(true, "Initial LIMIT entry placed for $sym $dir @ ${fmtPx(intendedLimitPrice)}.", cycleId, entryId, orderId)
+    }
 
-            val cycle = db.withTransaction {
-                val wallet = ensureWalletUnlocked()
-                require(wallet.availableBalance + 1e-9 >= margin) {
-                    "Insufficient ${stage.shortLabel} balance. Available ${fmt(wallet.availableBalance)} USDT, required ${fmt(margin)} USDT"
-                }
-                val existing = dao.getActiveCycles(stageId).any { it.symbol == sym && it.direction == dir }
-                require(!existing) { "An active $dir cycle already exists for $sym in ${stage.shortLabel}" }
+    private fun tryFillPendingEntryLocked(context: Context, entry: PaperEntryEntity, mark: Double, now: Long) {
+        if (entry.status != "PENDING" || !mark.isFinite() || mark <= 0.0) return
+        val trigger = entry.intendedPrice
+        val fillable = when (entry.direction) {
+            "LONG" -> mark <= trigger + 1e-12
+            "SHORT" -> mark >= trigger - 1e-12
+            else -> false
+        }
+        if (!fillable) return
+        val order = dao.getActiveOrdersForCycle(entry.cycleId).firstOrNull { it.entryId == entry.id && it.orderType == "ENTRY_LIMIT" }
+        val fillPrice = trigger // LIMIT fill at intended price in simulation
+        val qty = max((entry.margin * entry.leverage) / fillPrice, 0.0)
+        val fee = qty * fillPrice * feeRate
+        val fillKey = "fill-${entry.clientOrderId}"
+        val filledEntry = entry.copy(status = "FILLED", fillPrice = fillPrice, quantity = qty, filledQuantity = qty, remainingQuantity = qty, fee = fee, filledAt = now, updatedAt = now, fillEventId = fillKey)
+        dao.updateEntry(filledEntry)
+        if (order != null) dao.updateOrder(order.copy(status = "FILLED", filledPrice = fillPrice, filledQuantity = qty, updatedAt = now, executedAt = now))
+        val cycle = dao.getCycle(entry.cycleId) ?: return
+        val wallet = ensureWallet()
+        // reserved margin already taken at placement; adjust for fee difference approximation
+        dao.upsertWallet(wallet.copy(availableBalance = wallet.availableBalance - max(fee - (entry.margin * entry.leverage * feeRate), 0.0), updatedAt = now))
+        applyEntryFilledLocked(context, cycle, filledEntry, now)
+        dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "ENTRY_FILLED",
+            message = "${entry.entryType} LIMIT filled ${cycle.symbol} ${cycle.direction} @ ${fmtPx(fillPrice)} qty ${fmtQty(qty)}.",
+            price = fillPrice, dedupeKey = fillKey))
+    }
 
-                val cycleId = dao.insertCycle(
-                    PaperCycleEntity(
-                        stage = stageId, symbol = sym, direction = dir, status = "ACTIVE",
-                        leverage = leverage, initialMargin = margin, averagingMargin = s.averagingMargin,
-                        tpPercent = s.tpPercent, slPercent = s.slPercent,
-                        averagingPercent = s.averagingPercent, reentryPercent = s.reentryPercent,
-                        averagingEnabled = s.averagingEnabled, reentryEnabled = s.reentryEnabled,
-                        averageEntryPrice = price, totalQuantity = qty,
-                        takeProfitPrice = tpPrice, stopLossPrice = slPrice,
-                        updatedAt = t, createdAt = t,
-                        warningPercent = s.warningPercent,
-                        oppositeEnabled = s.oppositeEnabled, oppositePercent = s.oppositePercent, oppositeMargin = s.oppositeMargin,
-                        sourceCycleId = sourceCycleId, sourceType = sourceType,
-                    )
-                )
-                dao.insertEntry(PaperEntryEntity(stage = stageId, cycleId = cycleId, symbol = sym, direction = dir, entryType = "INITIAL", status = "FILLED", margin = margin, leverage = leverage, price = price, quantity = qty, remainingQuantity = qty, fee = fee, createdAt = t))
-                dao.upsertWallet(wallet.copy(availableBalance = wallet.availableBalance - margin - fee, reservedMargin = wallet.reservedMargin + margin, realizedPnl = wallet.realizedPnl - fee, updatedAt = t))
-                createProtectiveOrders(cycleId, sym, dir, tpPrice, slPrice, qty, t)
-                createPipelinePlans(cycleId, sym, dir, price, s, t)
-                dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = cycleId, symbol = sym, type = "INITIAL_ENTRY", message = "${stage.shortLabel} simulated $dir opened @ ${p(price)} | margin ${fmt(margin)} | lev ${leverage}x | qty ${q(qty)}", price = price, createdAt = t))
-                dao.getCycle(cycleId)!!
+    private fun applyEntryFilledLocked(context: Context, cycle: PaperCycleEntity, filledEntry: PaperEntryEntity, now: Long) {
+        // Create independent fixed SL for this entry (from actual fill)
+        val slPrice = calcSl(cycle.direction, filledEntry.fillPrice!!, cycle.slPercent)
+        val slClientId = "sl-${stage.id}-${cycle.id}-${filledEntry.id}-${UUID.randomUUID()}"
+        val slOrder = PaperOrderEntity(
+            stage = stage.id, cycleId = cycle.id, entryId = filledEntry.id, symbol = cycle.symbol, direction = cycle.direction,
+            side = if (cycle.direction == "LONG") "SELL" else "BUY", orderType = "ENTRY_SL", triggerPrice = slPrice, limitPrice = null,
+            quantity = filledEntry.remainingQuantity, status = "ACTIVE", clientOrderId = slClientId, createdAt = now, updatedAt = now
+        )
+        val slOrderId = dao.insertOrder(slOrder)
+        dao.updateEntry(filledEntry.copy(slPrice = slPrice, slOrderId = slOrderId, slFixed = true, updatedAt = now))
+
+        val openEntries = dao.getOpenFilledEntries(cycle.id)
+        val totalQty = openEntries.sumOf { it.remainingQuantity }
+        val avg = if (totalQty > 1e-12) openEntries.sumOf { (it.fillPrice ?: 0.0) * it.remainingQuantity } / totalQty else filledEntry.fillPrice
+        val tpPrice = calcTp(cycle.direction, avg!!, cycle.tpPercent)
+        var updatedCycle = cycle.copy(
+            status = "ACTIVE", averageEntryPrice = avg, totalQuantity = dao.getEntries(cycle.id).filter { it.status == "FILLED" || it.status == "CLOSED" }.sumOf { it.filledQuantity },
+            totalRemainingQuantity = totalQty, takeProfitPrice = tpPrice, updatedAt = now, lastError = null
+        )
+
+        if (filledEntry.entryType == "AVERAGING") {
+            updatedCycle = updatedCycle.copy(averagingDone = true)
+            // TP recalculated from weighted avg (done above). Existing SLs remain fixed - do not touch them.
+            dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "AVERAGING_FILLED",
+                message = "Averaging filled @ ${fmtPx(filledEntry.fillPrice!!)}. New avg ${fmtPx(avg)}. Cycle TP recalculated to ${fmtPx(tpPrice)}. Existing entry SLs unchanged.",
+                price = filledEntry.fillPrice, dedupeKey = "avg-${filledEntry.clientOrderId}"))
+            maybePlaceOppositeOnAveragingLocked(context, updatedCycle, filledEntry, now)
+        } else if (filledEntry.entryType == "INITIAL") {
+            updatedCycle = updatedCycle.copy(takeProfitPrice = tpPrice)
+            dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "INITIAL_ACTIVE",
+                message = "Initial entry active @ ${fmtPx(filledEntry.fillPrice!!)}. Cycle TP ${fmtPx(tpPrice)}. Independent SL ${fmtPx(slPrice)} (fixed).",
+                price = filledEntry.fillPrice, dedupeKey = "init-${filledEntry.clientOrderId}"))
+        }
+        dao.updateCycle(updatedCycle)
+        upsertCycleTpLocked(updatedCycle, now)
+    }
+
+    private fun upsertCycleTpLocked(cycle: PaperCycleEntity, now: Long) {
+        val tpPrice = cycle.takeProfitPrice ?: return
+        val qty = dao.getOpenFilledEntries(cycle.id).sumOf { it.remainingQuantity }
+        if (qty <= 1e-12) return
+        val existing = dao.getActiveTpForCycle(cycle.id)
+        val side = if (cycle.direction == "LONG") "SELL" else "BUY"
+        if (existing == null) {
+            val clientId = "tp-${stage.id}-${cycle.id}-${UUID.randomUUID()}"
+            val tp = PaperOrderEntity(stage = stage.id, cycleId = cycle.id, entryId = null, symbol = cycle.symbol, direction = cycle.direction, side = side,
+                orderType = "CYCLE_TP", triggerPrice = tpPrice, limitPrice = null, quantity = qty, status = "ACTIVE", clientOrderId = clientId, createdAt = now, updatedAt = now)
+            val id = dao.insertOrder(tp)
+            dao.updateCycle(dao.getCycle(cycle.id)!!.copy(cycleTpOrderId = id, updatedAt = now))
+        } else {
+            dao.updateOrder(existing.copy(triggerPrice = tpPrice, quantity = qty, updatedAt = now, lastError = null))
+        }
+    }
+
+    private fun maybePlaceOppositeOnAveragingLocked(context: Context, cycle: PaperCycleEntity, avgEntry: PaperEntryEntity, now: Long) {
+        if (!cycle.oppositeEnabled || cycle.oppositeDone) return
+        // only if no opposite-side position for that symbol is already open
+        val hasOpenAny = dao.countOpenCyclesAnyDirection(stage.id, cycle.symbol) > 1 // current cycle counts
+        val oppositeDir = if (cycle.direction == "LONG") "SHORT" else "LONG"
+        val hasOppositeDir = dao.countOpenCycles(stage.id, cycle.symbol, oppositeDir) > 0
+        if (hasOppositeDir) {
+            dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "OPPOSITE_SKIPPED",
+                message = "Opposite-side entry skipped: an opposite-side position for ${cycle.symbol} is already open.", dedupeKey = "opp-skip-${cycle.id}"))
+            dao.updateCycle(cycle.copy(oppositeDone = true, updatedAt = now))
+            return
+        }
+        val fillPrice = avgEntry.fillPrice ?: return
+        val margin = if (cycle.oppositeMargin > 0) cycle.oppositeMargin else avgEntry.margin
+        val lev = cycle.leverage
+        val wallet = ensureWallet()
+        val required = margin + (margin * lev * feeRate)
+        if (wallet.availableBalance + 1e-9 < required) {
+            dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "OPPOSITE_SKIPPED",
+                message = "Opposite-side entry skipped: insufficient simulated balance.", dedupeKey = "opp-bal-${cycle.id}-$now"))
+            dao.updateCycle(cycle.copy(oppositeDone = true, updatedAt = now))
+            return
+        }
+        val res = placeInitialLimitLocked(context, cycle.symbol, oppositeDir, margin, lev, fillPrice, sourceType = "AVERAGING_OPPOSITE", sourceCycleId = cycle.id)
+        if (res.ok) {
+            dao.updateCycle(dao.getCycle(cycle.id)!!.copy(oppositeDone = true, updatedAt = now))
+            dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "OPPOSITE_PLACED",
+                message = "Opposite-side LIMIT $oppositeDir placed at averaging fill ${fmtPx(fillPrice)} with margin $margin USDT.", price = fillPrice, dedupeKey = "opp-${cycle.id}"))
+        } else {
+            dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "OPPOSITE_FAILED",
+                message = "Opposite-side entry failed: ${res.message}", dedupeKey = "opp-fail-${cycle.id}-$now"))
+        }
+    }
+
+    private fun processActiveCycleLocked(context: Context, cycle: PaperCycleEntity, mark: Double, now: Long) {
+        if (!mark.isFinite() || mark <= 0.0) return
+        if (cycle.status !in setOf("ACTIVE", "CLOSING")) return
+        val openEntries = dao.getOpenFilledEntries(cycle.id)
+        if (openEntries.isEmpty()) {
+            finalizeIfEmptyLocked(cycle, mark, now, cycle.closeReason ?: "COMPLETED")
+            return
+        }
+        // Liquidation checks per entry (individual) - before TP/SL to be safe
+        for (entry in openEntries) {
+            val liq = liquidationPrice(entry.direction, entry.fillPrice ?: continue, entry.leverage)
+            val hitLiq = if (entry.direction == "LONG") mark <= liq else mark >= liq
+            if (hitLiq) {
+                closeSingleEntryLocked(cycle, entry, liq, "LIQUIDATION", now, "liq-${entry.id}-${entry.filledAt}")
+                // affected entry only; its SL cancelled/verified inside
             }
-            Result.success(cycle)
-        } catch (e: Exception) {
-            Result.failure(e)
         }
-    }
+        val afterLiq = dao.getOpenFilledEntries(cycle.id)
+        if (afterLiq.isEmpty()) { finalizeIfEmptyLocked(dao.getCycle(cycle.id) ?: cycle, mark, now, "LIQUIDATION"); return }
 
-    private suspend fun createProtectiveOrders(cycleId: Long, sym: String, dir: String, tp: Double, sl: Double, qty: Double, t: Long) {
-        dao.insertOrder(PaperOrderEntity(stage = stageId, cycleId = cycleId, symbol = sym, direction = dir, orderType = "TAKE_PROFIT", triggerPrice = tp, quantity = qty, status = "ACTIVE", createdAt = t, updatedAt = t))
-        dao.insertOrder(PaperOrderEntity(stage = stageId, cycleId = cycleId, symbol = sym, direction = dir, orderType = "STOP_LOSS", triggerPrice = sl, quantity = qty, status = "ACTIVE", createdAt = t, updatedAt = t))
-    }
-
-    private suspend fun createPipelinePlans(cycleId: Long, sym: String, dir: String, entryPrice: Double, s: LocalCoinSettings, t: Long) {
-        if (s.averagingEnabled && !hasOpenPlan(cycleId, "AVERAGING")) {
-            val trig = adverseTriggerPrice(dir, entryPrice, s.averagingPercent)
-            dao.insertPlan(PaperPlanEntity(stage = stageId, cycleId = cycleId, symbol = sym, direction = dir, planType = "AVERAGING", status = "WAITING", triggerPercent = s.averagingPercent, warningPercent = s.warningPercent, referencePrice = entryPrice, triggerPrice = trig, margin = s.averagingMargin, leverage = s.leverage, createdAt = t, updatedAt = t))
-        }
-        if (s.oppositeEnabled && !hasOpenPlan(cycleId, "OPPOSITE_SIDE")) {
-            val trig = adverseTriggerPrice(dir, entryPrice, s.oppositePercent)
-            dao.insertPlan(PaperPlanEntity(stage = stageId, cycleId = cycleId, symbol = sym, direction = dir, planType = "OPPOSITE_SIDE", status = "WAITING", triggerPercent = s.oppositePercent, warningPercent = s.warningPercent, referencePrice = entryPrice, triggerPrice = trig, margin = s.oppositeMargin, leverage = s.leverage, createdAt = t, updatedAt = t))
-        }
-    }
-
-    private suspend fun hasOpenPlan(cycleId: Long, type: String): Boolean {
-        val p = dao.getPlanForCycle(cycleId, type) ?: return false
-        return p.status !in listOf("ACTIVATED", "EXECUTED", "CANCELLED")
-    }
-
-    suspend fun processSymbolPrice(context: Context, symbol: String, price: Double) = mutex.withLock {
-        processSymbolPriceUnlocked(context, symbol, price)
-    }
-
-    suspend fun processAll(context: Context, prices: Map<String, Double>) = mutex.withLock {
-        synchronizeStateUnlocked()
-        for ((sym, px) in prices) {
-            if (!px.isFinite() || px <= 0) continue
-            processSymbolPriceUnlocked(context, sym, px)
-        }
-    }
-
-    private suspend fun processSymbolPriceUnlocked(context: Context, symbol: String, price: Double) {
-        if (price <= 0 || !price.isFinite()) return
-        val sym = symbol.uppercase()
-        processPlansUnlocked(context, sym, price)
-        val active = dao.getActiveCycles(stageId).filter { it.symbol == sym }
-        for (c in active) processCycleUnlocked(context, c, price)
-        processActiveOrdersUnlocked(context, sym, price)
-    }
-
-    private suspend fun processCycleUnlocked(context: Context, cycle: PaperCycleEntity, price: Double) {
-        val fresh = dao.getCycle(cycle.id) ?: return
-        if (fresh.status != "ACTIVE") return
-        val avg = fresh.averageEntryPrice ?: return
-        if (avg <= 0 || fresh.totalQuantity <= 0) return
-        val s = LocalCoinSettingsStore.load(context, fresh.symbol)
-        val favorable = favorablePct(fresh.direction, avg, price)
-        val adverse = adversePct(fresh.direction, avg, price)
-        val slPct = if (fresh.slPercent > 0) fresh.slPercent else s.slPercent
-        val tpPct = if (fresh.tpPercent > 0) fresh.tpPercent else s.tpPercent
-        if (adverse >= slPct && slPct > 0) { closeCycleUnlocked(fresh, price, "STOP_LOSS", s); return }
-        if (favorable >= tpPct && tpPct > 0) { closeCycleUnlocked(fresh, price, "TAKE_PROFIT", s); return }
-    }
-
-    private suspend fun processPlansUnlocked(context: Context, sym: String, price: Double) {
-        val plans = dao.getPendingPlans(stageId).filter { it.symbol == sym }
-        for (plan in plans) {
-            val p = dao.getPlan(plan.id) ?: continue
-            if (p.status in listOf("ACTIVATED", "EXECUTED", "CANCELLED")) continue
-            when (p.planType) {
-                "AVERAGING" -> processAveragingPlan(context, p, price)
-                "OPPOSITE_SIDE" -> processOppositePlan(context, p, price)
-                "REENTRY" -> processReentryPlan(context, p, price)
+        // Cycle TP (closes remaining qty)
+        val tp = cycle.takeProfitPrice
+        if (tp != null) {
+            val hitTp = if (cycle.direction == "LONG") mark >= tp else mark <= tp
+            if (hitTp) {
+                executeCycleTakeProfitLocked(context, dao.getCycle(cycle.id) ?: cycle, tp, now)
+                return
             }
         }
+        // Individual SLs
+        for (entry in dao.getOpenFilledEntries(cycle.id)) {
+            val sl = entry.slPrice ?: continue
+            val hitSl = if (cycle.direction == "LONG") mark <= sl else mark >= sl
+            if (hitSl) {
+                closeSingleEntryLocked(dao.getCycle(cycle.id) ?: cycle, entry, sl, "SL", now, "sl-${entry.id}-${entry.slOrderId}")
+            }
+        }
+        // Averaging trigger (max 1) - place LIMIT averaging entry if reached and not done/pending
+        maybeTriggerAveragingLocked(context, dao.getCycle(cycle.id) ?: cycle, mark, now)
+        // Update TP qty
+        val c2 = dao.getCycle(cycle.id) ?: return
+        if (c2.status == "ACTIVE") upsertCycleTpLocked(c2, now)
+        val remaining = dao.getOpenFilledEntries(cycle.id).sumOf { it.remainingQuantity }
+        if (remaining <= 1e-12 && dao.getPendingEntries(stage.id).none { it.cycleId == cycle.id }) {
+            finalizeIfEmptyLocked(c2, mark, now, c2.closeReason ?: "COMPLETED")
+        }
     }
 
-    private suspend fun processAveragingPlan(context: Context, plan: PaperPlanEntity, price: Double) {
-        val cycle = plan.cycleId?.let { dao.getCycle(it) } ?: run { dao.updatePlan(plan.copy(status = "CANCELLED", updatedAt = now())); return }
-        if (cycle.status != "ACTIVE" || cycle.averagingDone) { dao.updatePlan(plan.copy(status = "CANCELLED", updatedAt = now())); return }
+    private fun maybeTriggerAveragingLocked(context: Context, cycle: PaperCycleEntity, mark: Double, now: Long) {
+        if (!cycle.averagingEnabled || cycle.averagingDone || cycle.status != "ACTIVE") return
         val avg = cycle.averageEntryPrice ?: return
-        val adverse = adversePct(cycle.direction, avg, price)
-        val warnAt = plan.warningPercent ?: cycle.warningPercent
-        val trigAt = plan.triggerPercent ?: cycle.averagingPercent
-        var cur = plan
-        if (adverse >= warnAt && cur.status == "WAITING") {
-            cur = cur.copy(status = "WARNING", updatedAt = now(), triggerPrice = plan.triggerPrice ?: adverseTriggerPrice(cycle.direction, avg, trigAt))
-            dao.updatePlan(cur)
-            dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = cycle.id, symbol = cycle.symbol, type = "AVERAGING_WARNING", message = "Averaging warning: adverse ${fmt(adverse)}% reached ${fmt(warnAt)}% (trigger ${fmt(trigAt)}%)", price = price, createdAt = now()))
+        val hasPendingAvg = dao.getEntries(cycle.id).any { it.entryType == "AVERAGING" && it.status == "PENDING" }
+        val hasFilledAvg = dao.getEntries(cycle.id).any { it.entryType == "AVERAGING" && it.status == "FILLED" }
+        if (hasPendingAvg || hasFilledAvg) return
+        val trigger = if (cycle.direction == "LONG") avg * (1.0 - cycle.averagingPercent / 100.0) else avg * (1.0 + cycle.averagingPercent / 100.0)
+        val reached = if (cycle.direction == "LONG") mark <= trigger else mark >= trigger
+        if (!reached) return
+        val wallet = ensureWallet()
+        val margin = cycle.averagingMargin
+        val lev = cycle.leverage
+        val required = margin + (margin * lev * feeRate)
+        if (wallet.availableBalance + 1e-9 < required) {
+            dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "AVERAGING_SKIPPED",
+                message = "Averaging trigger reached but insufficient simulated balance.", price = mark, dedupeKey = "avg-skip-${cycle.id}-$now"))
+            return
         }
-        if (adverse >= trigAt && trigAt > 0) executeAveraging(context, cycle, cur, price)
+        dao.upsertWallet(wallet.copy(availableBalance = wallet.availableBalance - required, reservedMargin = wallet.reservedMargin + margin, updatedAt = now))
+        val clientOrderId = "entry-${stage.id}-${cycle.id}-avg-$now-${UUID.randomUUID()}"
+        val avgEntry = PaperEntryEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, direction = cycle.direction, entryType = "AVERAGING",
+            status = "PENDING", margin = margin, leverage = lev, intendedPrice = trigger, clientOrderId = clientOrderId, createdAt = now, updatedAt = now)
+        val entryId = dao.insertEntry(avgEntry)
+        dao.insertOrder(PaperOrderEntity(stage = stage.id, cycleId = cycle.id, entryId = entryId, symbol = cycle.symbol, direction = cycle.direction,
+            side = if (cycle.direction == "LONG") "BUY" else "SELL", orderType = "ENTRY_LIMIT", triggerPrice = trigger, limitPrice = trigger,
+            quantity = 0.0, status = "ACTIVE", clientOrderId = clientOrderId, createdAt = now, updatedAt = now))
+        dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "AVERAGING_PLACED",
+            message = "Averaging LIMIT placed @ ${fmtPx(trigger)} (1 per cycle max).", price = trigger, dedupeKey = "avg-place-$clientOrderId"))
     }
 
-    private suspend fun executeAveraging(context: Context, cycle: PaperCycleEntity, plan: PaperPlanEntity, price: Double) {
-        val fresh = dao.getCycle(cycle.id) ?: return
-        if (fresh.status != "ACTIVE" || fresh.averagingDone) { dao.updatePlan(plan.copy(status = "CANCELLED", updatedAt = now())); return }
-        val s = LocalCoinSettingsStore.load(context, fresh.symbol)
-        val margin = (plan.margin ?: fresh.averagingMargin).takeIf { it > 0 } ?: s.averagingMargin
-        val t = now()
-        db.withTransaction {
-            val wallet = ensureWalletUnlocked()
-            if (margin <= 0 || wallet.availableBalance + 1e-9 < margin) {
-                dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = fresh.id, symbol = fresh.symbol, type = "AVERAGING_SKIPPED", message = "Averaging trigger reached but skipped (margin ${fmt(margin)} unavailable)", price = price, createdAt = t))
-                dao.updateCycle(fresh.copy(averagingDone = true, updatedAt = t))
-                dao.updatePlan((dao.getPlan(plan.id) ?: plan).copy(status = "CANCELLED", updatedAt = t))
-                return@withTransaction
-            }
-            val c = dao.getCycle(fresh.id) ?: return@withTransaction
-            if (c.status != "ACTIVE" || c.averagingDone) return@withTransaction
-            val avg = c.averageEntryPrice ?: price
-            val qty = (margin * c.leverage) / price
-            if (qty <= 0 || !qty.isFinite()) return@withTransaction
-            val fee = qty * price * feeRate
-            val newQty = c.totalQuantity + qty
-            val newAvg = ((avg * c.totalQuantity) + (price * qty)) / newQty
-            val tp = tpPrice(c.direction, newAvg, c.tpPercent)
-            val sl = slPrice(c.direction, newAvg, c.slPercent)
-            dao.insertEntry(PaperEntryEntity(stage = stageId, cycleId = c.id, symbol = c.symbol, direction = c.direction, entryType = "AVERAGING", status = "FILLED", margin = margin, leverage = c.leverage, price = price, quantity = qty, remainingQuantity = qty, fee = fee, createdAt = t))
-            dao.updateCycle(c.copy(averagingDone = true, averageEntryPrice = newAvg, totalQuantity = newQty, takeProfitPrice = tp, stopLossPrice = sl, updatedAt = t))
-            dao.upsertWallet(wallet.copy(availableBalance = wallet.availableBalance - margin - fee, reservedMargin = wallet.reservedMargin + margin, realizedPnl = wallet.realizedPnl - fee, updatedAt = t))
-            dao.cancelActiveOrdersForCycle(stageId, c.id, "CANCELLED", t)
-            createProtectiveOrders(c.id, c.symbol, c.direction, tp, sl, newQty, t)
-            dao.updatePlan((dao.getPlan(plan.id) ?: plan).copy(status = "EXECUTED", referencePrice = avg, triggerPrice = price, executedAt = t, updatedAt = t))
-            dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = c.id, symbol = c.symbol, type = "AVERAGING_EXECUTED", message = "Averaging executed @ ${p(price)} | new avg ${p(newAvg)} | TP ${p(tp)} SL ${p(sl)}", price = price, createdAt = t))
+    private fun closeSingleEntryLocked(cycle: PaperCycleEntity, entry: PaperEntryEntity, exitPrice: Double, reason: String, now: Long, idempotencySeed: String) {
+        if (entry.status != "FILLED" || entry.remainingQuantity <= 1e-12) return
+        val closeQty = entry.remainingQuantity
+        val pnl = realizedPnl(entry.direction, entry.fillPrice ?: exitPrice, exitPrice, closeQty) - (entry.fee * (closeQty / max(entry.filledQuantity, 1e-12)) / 2.0)
+        val marginPart = entry.margin * (closeQty / max(entry.filledQuantity, 1e-12))
+        val pnlPct = if (marginPart > 1e-12) (pnl / marginPart) * 100.0 else 0.0
+        val idem = "${stage.id}|${cycle.id}|${entry.id}|$reason|$idempotencySeed"
+        dao.insertHistoryClose(PaperHistoryCloseEntity(
+            stage = stage.id, cycleId = cycle.id, entryId = entry.id, symbol = cycle.symbol, direction = cycle.direction,
+            entryFillPrice = entry.fillPrice ?: 0.0, exitFillPrice = exitPrice, entryMargin = marginPart, leverage = entry.leverage,
+            closedQuantity = closeQty, realizedPnlUsdt = pnl, realizedPnlPercent = pnlPct, closingReason = reason,
+            entryTimestamp = entry.filledAt ?: entry.createdAt, exitTimestamp = now, idempotencyKey = idem
+        ))
+        val wallet = ensureWallet()
+        dao.upsertWallet(wallet.copy(availableBalance = wallet.availableBalance + marginPart + pnl, reservedMargin = max(wallet.reservedMargin - marginPart, 0.0), realizedPnl = wallet.realizedPnl + pnl, updatedAt = now))
+        // Cancel+verify this entry's SL
+        entry.slOrderId?.let { slId ->
+            dao.getOrder(slId)?.let { o -> if (o.status in setOf("ACTIVE", "CANCELLING")) dao.updateOrder(o.copy(status = "CANCEL_VERIFIED", cancelRequestedAt = o.cancelRequestedAt ?: now, cancelVerifiedAt = now, updatedAt = now)) }
         }
+        dao.updateEntry(entry.copy(status = "CLOSED", remainingQuantity = 0.0, closeReason = reason, closedAt = now, updatedAt = now))
+        val remaining = dao.getOpenFilledEntries(cycle.id).sumOf { it.remainingQuantity }
+        dao.updateCycle((dao.getCycle(cycle.id) ?: cycle).copy(totalRemainingQuantity = remaining, realizedPnl = ((dao.getCycle(cycle.id)?.realizedPnl ?: 0.0) + pnl), updatedAt = now, status = if (remaining <= 1e-12) cycle.status else "ACTIVE"))
+        dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "ENTRY_CLOSED",
+            message = "Entry #${entry.id} ${entry.entryType} closed by $reason @ ${fmtPx(exitPrice)}. PNL ${fmt(pnl)} USDT. Other entries/TP unaffected (unless cycle completed).",
+            price = exitPrice, dedupeKey = "close-$idem"))
     }
 
-    private suspend fun processOppositePlan(context: Context, plan: PaperPlanEntity, price: Double) {
-        val cycle = plan.cycleId?.let { dao.getCycle(it) } ?: run { dao.updatePlan(plan.copy(status = "CANCELLED", updatedAt = now())); return }
-        if (cycle.status != "ACTIVE" || cycle.oppositeDone || !cycle.oppositeEnabled) { if (cycle.status != "ACTIVE" || cycle.oppositeDone) dao.updatePlan(plan.copy(status = "CANCELLED", updatedAt = now())); return }
-        val avg = cycle.averageEntryPrice ?: return
-        val adverse = adversePct(cycle.direction, avg, price)
-        val warnAt = plan.warningPercent ?: cycle.warningPercent
-        val trigAt = plan.triggerPercent ?: cycle.oppositePercent
-        var cur = dao.getPlan(plan.id) ?: plan
-        if (cur.status in listOf("ACTIVATED", "EXECUTED", "CANCELLED")) return
-        if (adverse >= warnAt && cur.status == "WAITING") {
-            cur = cur.copy(status = "WARNING", updatedAt = now()); dao.updatePlan(cur)
-            dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = cycle.id, symbol = cycle.symbol, type = "OPPOSITE_WARNING", message = "Opposite-side warning: adverse ${fmt(adverse)}% (trigger ${fmt(trigAt)}%)", price = price, createdAt = now()))
+    private fun executeCycleTakeProfitLocked(context: Context, cycle: PaperCycleEntity, tpPrice: Double, now: Long) {
+        val tpOrder = dao.getActiveTpForCycle(cycle.id)
+        tpOrder?.let { dao.updateOrder(it.copy(status = "FILLED", filledPrice = tpPrice, filledQuantity = it.quantity, executedAt = now, updatedAt = now)) }
+        val entries = dao.getOpenFilledEntries(cycle.id)
+        var totalPnl = cycle.realizedPnl ?: 0.0
+        for (entry in entries) {
+            val closeQty = entry.remainingQuantity
+            if (closeQty <= 1e-12) continue
+            val pnl = realizedPnl(entry.direction, entry.fillPrice ?: tpPrice, tpPrice, closeQty) - (entry.fee * (closeQty / max(entry.filledQuantity, 1e-12)) / 2.0)
+            val marginPart = entry.margin * (closeQty / max(entry.filledQuantity, 1e-12))
+            val pnlPct = if (marginPart > 1e-12) (pnl / marginPart) * 100.0 else 0.0
+            val idem = "${stage.id}|${cycle.id}|${entry.id}|TP|cycle-tp-$now"
+            dao.insertHistoryClose(PaperHistoryCloseEntity(stage = stage.id, cycleId = cycle.id, entryId = entry.id, symbol = cycle.symbol, direction = cycle.direction,
+                entryFillPrice = entry.fillPrice ?: 0.0, exitFillPrice = tpPrice, entryMargin = marginPart, leverage = entry.leverage, closedQuantity = closeQty,
+                realizedPnlUsdt = pnl, realizedPnlPercent = pnlPct, closingReason = "TP", entryTimestamp = entry.filledAt ?: entry.createdAt, exitTimestamp = now, idempotencyKey = idem))
+            totalPnl += pnl
+            val wallet = ensureWallet()
+            dao.upsertWallet(wallet.copy(availableBalance = wallet.availableBalance + marginPart + pnl, reservedMargin = max(wallet.reservedMargin - marginPart, 0.0), realizedPnl = wallet.realizedPnl + pnl, updatedAt = now))
+            dao.updateEntry(entry.copy(status = "CLOSED", remainingQuantity = 0.0, closeReason = "TP", closedAt = now, updatedAt = now))
         }
-        if (adverse >= trigAt && trigAt > 0) executeOpposite(context, cycle, cur, price)
+        // Cancel ALL remaining individual SL orders and VERIFY
+        dao.requestCancelAllSlForCycle(cycle.id, "CANCELLING", now)
+        dao.verifyCancelAllSlForCycle(cycle.id, now)
+        val unverified = dao.countUnverifiedActiveSlForCycle(cycle.id)
+        if (unverified > 0) {
+            dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "SL_CANCEL_UNVERIFIED",
+                message = "Cycle TP executed but $unverified SL order(s) could not be verification-confirmed cancelled; retry required.", price = tpPrice, dedupeKey = "sl-unv-${cycle.id}-$now"))
+        }
+        // Cancel pending entry orders (e.g. unfilled averaging) for this cycle
+        dao.getActiveOrdersForCycle(cycle.id).filter { it.orderType == "ENTRY_LIMIT" }.forEach { dao.updateOrder(it.copy(status = "CANCEL_VERIFIED", cancelVerifiedAt = now, updatedAt = now)) }
+        val closed = cycle.copy(status = "CLOSED", closePrice = tpPrice, realizedPnl = totalPnl, closeReason = "TAKE_PROFIT", closedAt = now, updatedAt = now, totalRemainingQuantity = 0.0)
+        dao.updateCycle(closed)
+        dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "CYCLE_TP",
+            message = "Cycle TP executed @ ${fmtPx(tpPrice)}. Remaining qty closed. All remaining entry SL orders cancelled and verified. PNL ${fmt(totalPnl)} USDT.",
+            price = tpPrice, dedupeKey = "tp-${cycle.id}-$now"))
+        if (cycle.reentryEnabled) createReentryPlanLocked(cycle, tpPrice, now)
     }
 
-    private suspend fun executeOpposite(context: Context, cycle: PaperCycleEntity, plan: PaperPlanEntity, price: Double) {
-        val fresh = dao.getCycle(cycle.id) ?: return
-        if (fresh.status != "ACTIVE" || fresh.oppositeDone) { dao.updatePlan(plan.copy(status = "CANCELLED", updatedAt = now())); return }
-        val s = LocalCoinSettingsStore.load(context, fresh.symbol)
-        val oppDir = if (fresh.direction == "LONG") "SHORT" else "LONG"
-        val margin = listOf(plan.margin, fresh.oppositeMargin, s.oppositeMargin, fresh.initialMargin).firstNotNullOfOrNull { v -> v?.takeIf { it > 0 } } ?: 2.0
-        val lev = (plan.leverage ?: fresh.leverage).takeIf { it > 0 } ?: s.leverage
-        val t = now()
-        db.withTransaction {
-            val c = dao.getCycle(fresh.id) ?: return@withTransaction
-            if (c.status != "ACTIVE" || c.oppositeDone) return@withTransaction
-            dao.updateCycle(c.copy(oppositeDone = true, updatedAt = t))
-            dao.updatePlan((dao.getPlan(plan.id) ?: plan).copy(status = "TRIGGER_REACHED", updatedAt = t, triggerPrice = price, margin = margin, leverage = lev))
-        }
-        val res = openInitialUnlocked(context, fresh.symbol, oppDir, margin, lev, price, sourceCycleId = fresh.id, sourceType = "OPPOSITE")
-        db.withTransaction {
-            val pl = dao.getPlan(plan.id)
-            if (res.isSuccess) {
-                val newId = res.getOrNull()?.id
-                pl?.let { dao.updatePlan(it.copy(status = "EXECUTED", resultCycleId = newId, executedAt = now(), updatedAt = now())) }
-                dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = fresh.id, symbol = fresh.symbol, type = "OPPOSITE_EXECUTED", message = "Opposite-side $oppDir executed @ ${p(price)} (cycle #$newId)", price = price, createdAt = now()))
-            } else {
-                pl?.let { dao.updatePlan(it.copy(status = "CANCELLED", updatedAt = now())) }
-                dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = fresh.id, symbol = fresh.symbol, type = "OPPOSITE_FAILED", message = "Opposite-side execution failed: ${res.exceptionOrNull()?.message}", price = price, createdAt = now()))
-            }
-        }
+    private fun createReentryPlanLocked(cycle: PaperCycleEntity, closePrice: Double, now: Long) {
+        val existing = dao.getOpenReentryPlanForSource(cycle.id)
+        if (existing != null) return
+        val trigger = if (cycle.direction == "LONG") closePrice * (1.0 - cycle.reentryPercent / 100.0) else closePrice * (1.0 + cycle.reentryPercent / 100.0)
+        val plan = PaperReentryPlanEntity(stage = stage.id, sourceCycleId = cycle.id, symbol = cycle.symbol, direction = cycle.direction, leverage = cycle.leverage,
+            margin = cycle.initialMargin, referenceClosePrice = closePrice, triggerPrice = trigger, status = "WAITING", clientPlanId = "re-${stage.id}-${cycle.id}", createdAt = now, updatedAt = now)
+        dao.insertReentryPlan(plan)
+        dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "REENTRY_WAITING",
+            message = "Re-entry waiting for pullback to ${fmtPx(trigger)} (${cycle.reentryPercent}% from TP close). New cycle will be created after trigger; never merged.",
+            price = trigger, dedupeKey = "re-wait-${cycle.id}"))
     }
 
-    private suspend fun processReentryPlan(context: Context, plan: PaperPlanEntity, price: Double) {
-        if (plan.status !in listOf("WAITING", "WARNING", "TRIGGER_REACHED", "READY")) return
-        val trigger = plan.triggerPrice ?: return
-        val hit = if (plan.direction == "LONG") price <= trigger else price >= trigger
-        if (!hit) return
-        db.withTransaction {
-            val cur = dao.getPlan(plan.id) ?: return@withTransaction
-            if (cur.status in listOf("ACTIVATED", "EXECUTED", "CANCELLED")) return@withTransaction
-            if (dao.getActiveOrders(stageId).any { it.sourcePlanId == cur.id && it.status == "ACTIVE" }) return@withTransaction
-            val s = LocalCoinSettingsStore.load(context, cur.symbol)
-            val margin = cur.margin ?: s.marginAmount
-            val lev = cur.leverage ?: s.leverage
-            val qty = if (price > 0) (margin * lev) / price else 0.0
-            val tempCycleId = cur.cycleId ?: (cur.sourceCycleId ?: 0L)
-            val orderId = dao.insertOrder(PaperOrderEntity(stage = stageId, cycleId = tempCycleId, symbol = cur.symbol, direction = cur.direction, orderType = "REENTRY", triggerPrice = trigger, quantity = qty, status = "ACTIVE", sourcePlanId = cur.id, createdAt = now(), updatedAt = now()))
-            dao.updatePlan(cur.copy(status = "ACTIVATED", activeOrderId = orderId, activatedAt = now(), updatedAt = now()))
-            dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = cur.sourceCycleId, symbol = cur.symbol, type = "REENTRY_ACTIVATED", message = "Re-entry condition met @ ${p(trigger)}; simulated order activated (Open Orders)", price = price, createdAt = now()))
-        }
-        val activated = dao.getPlan(plan.id) ?: return
-        val orderId = activated.activeOrderId ?: return
-        val order = dao.getOrder(orderId) ?: return
-        executeReentryOrder(context, order, activated, price)
-    }
-
-    private suspend fun executeReentryOrder(context: Context, order: PaperOrderEntity, plan: PaperPlanEntity, price: Double) {
-        if (order.status != "ACTIVE" || order.orderType != "REENTRY") return
-        val hasActive = dao.getActiveCycles(stageId).any { it.symbol == plan.symbol && it.direction == plan.direction }
-        if (hasActive) return
-        val s = LocalCoinSettingsStore.load(context, plan.symbol)
-        val margin = plan.margin ?: s.marginAmount
-        val lev = plan.leverage ?: s.leverage
-        val res = openInitialUnlocked(context, plan.symbol, plan.direction, margin, lev, price, sourceCycleId = plan.sourceCycleId, sourceType = "REENTRY")
-        db.withTransaction {
-            val curOrder = dao.getOrder(order.id) ?: order
-            val curPlan = dao.getPlan(plan.id) ?: plan
-            if (res.isSuccess) {
-                val newId = res.getOrNull()?.id
-                if (curOrder.status == "ACTIVE") dao.updateOrder(curOrder.copy(status = "EXECUTED", executedAt = now(), updatedAt = now(), cycleId = newId ?: curOrder.cycleId))
-                dao.updatePlan(curPlan.copy(status = "EXECUTED", resultCycleId = newId, executedAt = now(), updatedAt = now()))
-                dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = newId ?: curPlan.sourceCycleId, symbol = plan.symbol, type = "REENTRY_EXECUTED", message = "Re-entry executed @ ${p(price)} -> cycle #$newId", price = price, createdAt = now()))
-            } else {
-                if (curOrder.status == "ACTIVE") dao.updateOrder(curOrder.copy(status = "REJECTED", updatedAt = now()))
-                dao.updatePlan(curPlan.copy(status = "CANCELLED", updatedAt = now()))
-                dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = curPlan.sourceCycleId, symbol = plan.symbol, type = "REENTRY_FAILED", message = "Re-entry execution failed: ${res.exceptionOrNull()?.message}", price = price, createdAt = now()))
-            }
+    private fun processReentryPlanLocked(context: Context, plan: PaperReentryPlanEntity, mark: Double, now: Long) {
+        if (plan.status !in setOf("WAITING", "TRIGGERED")) return
+        val reached = if (plan.direction == "LONG") mark <= plan.triggerPrice else mark >= plan.triggerPrice
+        if (!reached && plan.status == "WAITING") return
+        val updated = plan.copy(status = "TRIGGERED", triggeredAt = plan.triggeredAt ?: now, updatedAt = now)
+        dao.updateReentryPlan(updated)
+        val res = placeInitialLimitLocked(context, plan.symbol, plan.direction, plan.margin, plan.leverage, plan.triggerPrice, sourceType = "REENTRY", sourceCycleId = plan.sourceCycleId)
+        if (res.ok) {
+            dao.updateReentryPlan(updated.copy(status = "ORDER_PLACED", newCycleId = res.cycleId, entryOrderId = res.orderId, updatedAt = now))
+            dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = res.cycleId, symbol = plan.symbol, type = "REENTRY_PLACED",
+                message = "Re-entry LIMIT placed as NEW cycle #${res.cycleId} @ ${fmtPx(plan.triggerPrice)} (source cycle #${plan.sourceCycleId}).",
+                price = plan.triggerPrice, dedupeKey = "re-place-${plan.id}"))
+        } else {
+            dao.updateReentryPlan(updated.copy(status = "WAITING", lastError = res.message, updatedAt = now))
         }
     }
 
-    private suspend fun processActiveOrdersUnlocked(context: Context, sym: String, price: Double) {
-        val orders = dao.getActiveOrders(stageId).filter { it.symbol == sym }
-        for (o in orders) {
-            if (o.status != "ACTIVE") continue
-            if (o.orderType == "REENTRY") {
-                val plan = o.sourcePlanId?.let { dao.getPlan(it) } ?: continue
-                executeReentryOrder(context, dao.getOrder(o.id) ?: o, plan, price)
-            }
+    private fun finalizeIfEmptyLocked(cycle: PaperCycleEntity, mark: Double, now: Long, reason: String) {
+        val pending = dao.getEntries(cycle.id).any { it.status == "PENDING" }
+        if (pending) return
+        if (cycle.status == "CLOSED") return
+        dao.requestCancelAllSlForCycle(cycle.id, "CANCELLING", now)
+        dao.verifyCancelAllSlForCycle(cycle.id, now)
+        dao.getActiveOrdersForCycle(cycle.id).forEach { dao.updateOrder(it.copy(status = "CANCEL_VERIFIED", cancelVerifiedAt = now, updatedAt = now)) }
+        val realized = cycle.realizedPnl ?: 0.0
+        dao.updateCycle(cycle.copy(status = "CLOSED", closeReason = reason, closePrice = mark, closedAt = now, updatedAt = now, totalRemainingQuantity = 0.0, realizedPnl = realized))
+        if (reason == "TAKE_PROFIT" && cycle.reentryEnabled) createReentryPlanLocked(cycle, mark, now)
+    }
+
+    
+
+    private suspend fun ensureWallet(): PaperWalletEntity = dao.getWallet(stage.id) ?: PaperWalletEntity(stage = stage.id).also { dao.upsertWallet(it) }
+
+    private fun assertSimulatedExecutionAllowed() {
+        check(stage == TradingStage.STAGE_1 || stage == TradingStage.STAGE_2) {
+            "Order submission blocked: ${stage.title}. Stage 3 real execution is disabled by default and not implemented in this build."
         }
     }
 
-    private suspend fun closeCycleUnlocked(cycle: PaperCycleEntity, price: Double, reason: String, settings: LocalCoinSettings) {
-        val t = now()
-        db.withTransaction {
-            val fresh = dao.getCycle(cycle.id) ?: return@withTransaction
-            if (fresh.status == "CLOSED") return@withTransaction
-            val entries = dao.getEntries(fresh.id).filter { it.remainingQuantity > 1e-12 }
-            val avg = fresh.averageEntryPrice ?: price
-            var grossPnl = 0.0
-            var totalMargin = 0.0
-            var closeFee = 0.0
-            for (e in entries) {
-                val q = e.remainingQuantity
-                grossPnl += if (fresh.direction == "LONG") (price - e.price) * q else (e.price - price) * q
-                totalMargin += e.margin
-                closeFee += q * price * feeRate
-                dao.updateEntry(e.copy(remainingQuantity = 0.0, status = "CLOSED", closedAt = t))
-            }
-            val netPnl = grossPnl - closeFee
-            val wallet = ensureWalletUnlocked()
-            val release = max(0.0, totalMargin)
-            val tpOrder = dao.getActiveOrder(fresh.id, "TAKE_PROFIT")
-            val slOrder = dao.getActiveOrder(fresh.id, "STOP_LOSS")
-            if (reason == "TAKE_PROFIT") {
-                tpOrder?.let { dao.updateOrder(it.copy(status = "EXECUTED", executedAt = t, updatedAt = t, quantity = fresh.totalQuantity)) }
-                slOrder?.let { dao.updateOrder(it.copy(status = "CANCELLED", updatedAt = t)) }
-            } else if (reason == "STOP_LOSS") {
-                slOrder?.let { dao.updateOrder(it.copy(status = "EXECUTED", executedAt = t, updatedAt = t, quantity = fresh.totalQuantity)) }
-                tpOrder?.let { dao.updateOrder(it.copy(status = "CANCELLED", updatedAt = t)) }
-            } else {
-                dao.cancelActiveOrdersForCycle(stageId, fresh.id, "CANCELLED", t)
-            }
-            for (pl in dao.getPlansForCycle(fresh.id)) {
-                if (pl.planType != "REENTRY" && pl.status !in listOf("ACTIVATED", "EXECUTED", "CANCELLED")) dao.updatePlan(pl.copy(status = "CANCELLED", updatedAt = t))
-            }
-            dao.updateCycle(fresh.copy(status = "CLOSED", closePrice = price, realizedPnl = netPnl, closeReason = reason, updatedAt = t, closedAt = t))
-            dao.upsertWallet(wallet.copy(availableBalance = wallet.availableBalance + release + netPnl, reservedMargin = max(0.0, wallet.reservedMargin - release), realizedPnl = wallet.realizedPnl + netPnl, updatedAt = t))
-            dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = fresh.id, symbol = fresh.symbol, type = reason, message = "Cycle closed ($reason) @ ${p(price)} | net PnL ${fmt(netPnl)} USDT", price = price, createdAt = t))
-
-            // Re-entry only after successful Take Profit
-            if (reason == "TAKE_PROFIT" && fresh.reentryEnabled && fresh.reentryPercent > 0) {
-                val existing = dao.getReentryPlanForSource(stageId, fresh.id)
-                if (existing == null) {
-                    val trigger = if (fresh.direction == "LONG") price * (1 - fresh.reentryPercent / 100.0) else price * (1 + fresh.reentryPercent / 100.0)
-                    dao.insertPlan(PaperPlanEntity(stage = stageId, sourceCycleId = fresh.id, symbol = fresh.symbol, direction = fresh.direction, planType = "REENTRY", status = "WAITING", triggerPercent = fresh.reentryPercent, referencePrice = price, triggerPrice = trigger, margin = fresh.initialMargin, leverage = fresh.leverage, createdAt = t, updatedAt = t))
-                    dao.insertEvent(PaperEventEntity(stage = stageId, cycleId = fresh.id, symbol = fresh.symbol, type = "REENTRY_PLANNED", message = "Re-entry planned after TP: trigger @ ${p(trigger)} (${fresh.reentryPercent}%)", price = trigger, createdAt = t))
-                }
-            }
-            // STOP_LOSS: no re-entry
+    companion object {
+        fun calcTp(direction: String, avg: Double, pct: Double): Double = if (direction == "LONG") avg * (1 + pct / 100.0) else avg * (1 - pct / 100.0)
+        fun calcSl(direction: String, avg: Double, pct: Double): Double = if (direction == "LONG") avg * (1 - pct / 100.0) else avg * (1 + pct / 100.0)
+        fun realizedPnl(direction: String, entry: Double, exit: Double, qty: Double): Double = if (direction == "LONG") (exit - entry) * qty else (entry - exit) * qty
+        fun weightedAvg(entries: List<Pair<Double, Double>>): Double {
+            val qty = entries.sumOf { it.second }
+            if (qty <= 1e-12) return entries.lastOrNull()?.first ?: 0.0
+            return entries.sumOf { it.first * it.second } / qty
+        }
+        fun liquidationPrice(direction: String, entry: Double, leverage: Int): Double {
+            // Conservative isolated-margin simulation approximation (includes fee/buffer). Not exchange-identical.
+            val lev = LeverageConfig.requireSupported(leverage)
+            val move = (1.0 / lev.toDouble()) * 0.93
+            return if (direction == "LONG") entry * (1.0 - move) else entry * (1.0 + move)
         }
     }
 
-    private suspend fun synchronizeStateUnlocked() {
-        try {
-            val t = now()
-            val legacy = try { dao.getWaitingReentries(stageId) } catch (_: Exception) { emptyList() }
-            for (r in legacy) {
-                if (dao.getReentryPlanForSource(stageId, r.sourceCycleId) == null) {
-                    dao.insertPlan(PaperPlanEntity(stage = stageId, sourceCycleId = r.sourceCycleId, symbol = r.symbol, direction = r.direction, planType = "REENTRY", status = "WAITING", referencePrice = r.referenceClosePrice, triggerPrice = r.triggerPrice, createdAt = r.createdAt, updatedAt = t))
-                    dao.updateReentry(r.copy(status = "TRIGGERED", triggeredAt = t))
-                }
-            }
-            for (c in dao.getActiveCycles(stageId)) {
-                val avg = c.averageEntryPrice ?: continue
-                val tp = c.takeProfitPrice ?: tpPrice(c.direction, avg, c.tpPercent)
-                val sl = c.stopLossPrice ?: slPrice(c.direction, avg, c.slPercent)
-                if (c.takeProfitPrice == null || c.stopLossPrice == null) dao.updateCycle(c.copy(takeProfitPrice = tp, stopLossPrice = sl, updatedAt = t))
-                if (dao.getActiveOrder(c.id, "TAKE_PROFIT") == null) dao.insertOrder(PaperOrderEntity(stage = stageId, cycleId = c.id, symbol = c.symbol, direction = c.direction, orderType = "TAKE_PROFIT", triggerPrice = tp, quantity = c.totalQuantity, status = "ACTIVE", createdAt = c.createdAt, updatedAt = t))
-                if (dao.getActiveOrder(c.id, "STOP_LOSS") == null) dao.insertOrder(PaperOrderEntity(stage = stageId, cycleId = c.id, symbol = c.symbol, direction = c.direction, orderType = "STOP_LOSS", triggerPrice = sl, quantity = c.totalQuantity, status = "ACTIVE", createdAt = c.createdAt, updatedAt = t))
-                if (c.averagingEnabled && !c.averagingDone && dao.getPlanForCycle(c.id, "AVERAGING") == null) dao.insertPlan(PaperPlanEntity(stage = stageId, cycleId = c.id, symbol = c.symbol, direction = c.direction, planType = "AVERAGING", status = "WAITING", triggerPercent = c.averagingPercent, warningPercent = c.warningPercent, referencePrice = avg, triggerPrice = adverseTriggerPrice(c.direction, avg, c.averagingPercent), margin = c.averagingMargin, leverage = c.leverage, createdAt = t, updatedAt = t))
-                if (c.oppositeEnabled && !c.oppositeDone && dao.getPlanForCycle(c.id, "OPPOSITE_SIDE") == null) dao.insertPlan(PaperPlanEntity(stage = stageId, cycleId = c.id, symbol = c.symbol, direction = c.direction, planType = "OPPOSITE_SIDE", status = "WAITING", triggerPercent = c.oppositePercent, warningPercent = c.warningPercent, referencePrice = avg, triggerPrice = adverseTriggerPrice(c.direction, avg, c.oppositePercent), margin = c.oppositeMargin, leverage = c.leverage, createdAt = t, updatedAt = t))
-                if (c.averagingDone) dao.getPlanForCycle(c.id, "AVERAGING")?.let { if (it.status !in listOf("EXECUTED", "CANCELLED")) dao.updatePlan(it.copy(status = "CANCELLED", updatedAt = t)) }
-                if (c.oppositeDone) dao.getPlanForCycle(c.id, "OPPOSITE_SIDE")?.let { if (it.status !in listOf("EXECUTED", "CANCELLED")) dao.updatePlan(it.copy(status = "CANCELLED", updatedAt = t)) }
-            }
-        } catch (_: Exception) { }
-    }
-
-    private suspend fun ensureWalletUnlocked(): PaperWalletEntity =
-        dao.getWallet(stageId) ?: newWallet().also { dao.upsertWallet(it) }
-
-    private fun tpPrice(direction: String, avg: Double, tpPercent: Double): Double =
-        if (direction == "LONG") avg * (1 + tpPercent / 100.0) else avg * (1 - tpPercent / 100.0)
-    private fun slPrice(direction: String, avg: Double, slPercent: Double): Double =
-        if (direction == "LONG") avg * (1 - slPercent / 100.0) else avg * (1 + slPercent / 100.0)
-    private fun adverseTriggerPrice(direction: String, ref: Double, pct: Double): Double =
-        if (direction == "LONG") ref * (1 - pct / 100.0) else ref * (1 + pct / 100.0)
-    private fun favorablePct(direction: String, avg: Double, price: Double): Double =
-        if (direction == "LONG") ((price - avg) / avg) * 100.0 else ((avg - price) / avg) * 100.0
-    private fun adversePct(direction: String, avg: Double, price: Double): Double =
-        if (direction == "LONG") ((avg - price) / avg) * 100.0 else ((price - avg) / avg) * 100.0
-    private fun now() = System.currentTimeMillis()
     private fun fmt(v: Double) = String.format(java.util.Locale.US, "%.4f", v)
-    private fun q(v: Double) = String.format(java.util.Locale.US, "%.6f", v)
-    private fun p(v: Double) = com.ansardeo.binancebot.util.PriceFormatter.formatPrice(v)
-}
-
-object PaperEngineProvider {
-    private val engines = java.util.concurrent.ConcurrentHashMap<String, PaperEngine>()
-    fun get(context: Context, stage: TradingStage = TradingStage.STAGE_1): PaperEngine =
-        engines.getOrPut(stage.id) { PaperEngine(PaperDatabase.get(context), stage) }
-    fun getAll(context: Context): List<PaperEngine> = TradingStage.entries.map { get(context, it) }
+    private fun fmtPx(v: Double) = String.format(java.util.Locale.US, "%.8f", v).trimEnd('0').trimEnd('.')
+    private fun fmtQty(v: Double) = String.format(java.util.Locale.US, "%.6f", v).trimEnd('0').trimEnd('.')
 }

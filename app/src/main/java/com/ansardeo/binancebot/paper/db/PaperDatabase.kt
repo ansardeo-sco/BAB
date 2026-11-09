@@ -10,12 +10,12 @@ import androidx.room.RoomDatabase
         PaperWalletEntity::class,
         PaperCycleEntity::class,
         PaperEntryEntity::class,
-        PaperEventEntity::class,
-        PaperReentryEntity::class,
         PaperOrderEntity::class,
-        PaperPlanEntity::class,
+        PaperHistoryCloseEntity::class,
+        PaperEventEntity::class,
+        PaperReentryPlanEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class PaperDatabase : RoomDatabase() {
