@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_primary"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/txtDetailSymbol"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="BTCUSDT"
+                android:textColor="@color/text_primary"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/btnFavoriteToggle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@color/bg_input"
+                android:paddingStart="14dp"
+                android:paddingTop="10dp"
+                android:paddingEnd="14dp"
+                android:paddingBottom="10dp"
+                android:text="☆ Favorite"
+                android:textColor="@color/accent_yellow"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/txtDetailStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Loading live market data..."
+            android:textColor="@color/text_muted"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="@color/bg_card"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="PRICE (USDⓈ-M FUTURES, READ-ONLY)"
+                android:textColor="@color/accent_yellow"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    android:text="Mark / Last Price" android:textColor="@color/text_muted" android:textSize="13sp" />
+                <TextView android:id="@+id/txtMarkPrice" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:gravity="end" android:text="--" android:textAlignment="viewEnd"
+                    android:textColor="@color/text_primary" android:textSize="18sp" android:textStyle="bold"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    android:text="24h Change" android:textColor="@color/text_muted" android:textSize="13sp" />
+                <TextView android:id="@+id/txtChange" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:gravity="end" android:text="--" android:textAlignment="viewEnd"
+                    android:textColor="@color/text_primary" android:textSize="15sp" android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@color/bg_card"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="24H MARKET STATS"
+                android:textColor="@color/accent_yellow"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="24h High" android:textColor="@color/text_muted" />
+                <TextView android:id="@+id/txtHigh" android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="end" android:text="--" android:textAlignment="viewEnd" android:textColor="@color/text_primary" android:fontFamily="monospace" />
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="24h Low" android:textColor="@color/text_muted" />
+                <TextView android:id="@+id/txtLow" android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="end" android:text="--" android:textAlignment="viewEnd" android:textColor="@color/text_primary" android:fontFamily="monospace" />
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="24h Quote Volume (USDT)" android:textColor="@color/text_muted" />
+                <TextView android:id="@+id/txtVolume" android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="end" android:text="--" android:textAlignment="viewEnd" android:textColor="@color/text_primary" android:fontFamily="monospace" />
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Last Update (UTC)" android:textColor="@color/text_muted" />
+                <TextView android:id="@+id/txtUpdated" android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="end" android:text="--" android:textAlignment="viewEnd" android:textColor="@color/text_muted" android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:background="@color/bg_card"
+            android:padding="14dp"
+            android:text="Phase 1 mode: market data is live/public (no API keys). Trading actions in this app are simulated locally with a virtual $100 balance — no real orders are sent to Binance."
+            android:textColor="@color/text_muted"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btnCloseDetail"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="16dp"
+            android:backgroundTint="@color/bg_input"
+            android:text="CLOSE"
+            android:textColor="@color/text_primary" />
+    </LinearLayout>
+</ScrollView>
