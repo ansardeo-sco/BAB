@@ -114,7 +114,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         }
     }
 
-    private fun placeInitialLimitLocked(
+    private suspend fun placeInitialLimitLocked(
         context: Context,
         symbol: String,
         direction: String,
@@ -168,7 +168,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         return EngineResult(true, "Initial LIMIT entry placed for $sym $dir @ ${fmtPx(intendedLimitPrice)}.", cycleId, entryId, orderId)
     }
 
-    private fun tryFillPendingEntryLocked(context: Context, entry: PaperEntryEntity, mark: Double, now: Long) {
+    private suspend fun tryFillPendingEntryLocked(context: Context, entry: PaperEntryEntity, mark: Double, now: Long) {
         if (entry.status != "PENDING" || !mark.isFinite() || mark <= 0.0) return
         val trigger = entry.intendedPrice
         val fillable = when (entry.direction) {
@@ -195,7 +195,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
             price = fillPrice, dedupeKey = fillKey))
     }
 
-    private fun applyEntryFilledLocked(context: Context, cycle: PaperCycleEntity, filledEntry: PaperEntryEntity, now: Long) {
+    private suspend fun applyEntryFilledLocked(context: Context, cycle: PaperCycleEntity, filledEntry: PaperEntryEntity, now: Long) {
         // Create independent fixed SL for this entry (from actual fill)
         val slPrice = calcSl(cycle.direction, filledEntry.fillPrice!!, cycle.slPercent)
         val slClientId = "sl-${stage.id}-${cycle.id}-${filledEntry.id}-${UUID.randomUUID()}"
@@ -233,7 +233,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         upsertCycleTpLocked(updatedCycle, now)
     }
 
-    private fun upsertCycleTpLocked(cycle: PaperCycleEntity, now: Long) {
+    private suspend fun upsertCycleTpLocked(cycle: PaperCycleEntity, now: Long) {
         val tpPrice = cycle.takeProfitPrice ?: return
         val qty = dao.getOpenFilledEntries(cycle.id).sumOf { it.remainingQuantity }
         if (qty <= 1e-12) return
@@ -250,7 +250,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         }
     }
 
-    private fun maybePlaceOppositeOnAveragingLocked(context: Context, cycle: PaperCycleEntity, avgEntry: PaperEntryEntity, now: Long) {
+    private suspend fun maybePlaceOppositeOnAveragingLocked(context: Context, cycle: PaperCycleEntity, avgEntry: PaperEntryEntity, now: Long) {
         if (!cycle.oppositeEnabled || cycle.oppositeDone) return
         // only if no opposite-side position for that symbol is already open
         val hasOpenAny = dao.countOpenCyclesAnyDirection(stage.id, cycle.symbol) > 1 // current cycle counts
@@ -284,7 +284,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         }
     }
 
-    private fun processActiveCycleLocked(context: Context, cycle: PaperCycleEntity, mark: Double, now: Long) {
+    private suspend fun processActiveCycleLocked(context: Context, cycle: PaperCycleEntity, mark: Double, now: Long) {
         if (!mark.isFinite() || mark <= 0.0) return
         if (cycle.status !in setOf("ACTIVE", "CLOSING")) return
         val openEntries = dao.getOpenFilledEntries(cycle.id)
@@ -332,7 +332,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         }
     }
 
-    private fun maybeTriggerAveragingLocked(context: Context, cycle: PaperCycleEntity, mark: Double, now: Long) {
+    private suspend fun maybeTriggerAveragingLocked(context: Context, cycle: PaperCycleEntity, mark: Double, now: Long) {
         if (!cycle.averagingEnabled || cycle.averagingDone || cycle.status != "ACTIVE") return
         val avg = cycle.averageEntryPrice ?: return
         val hasPendingAvg = dao.getEntries(cycle.id).any { it.entryType == "AVERAGING" && it.status == "PENDING" }
@@ -362,7 +362,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
             message = "Averaging LIMIT placed @ ${fmtPx(trigger)} (1 per cycle max).", price = trigger, dedupeKey = "avg-place-$clientOrderId"))
     }
 
-    private fun closeSingleEntryLocked(cycle: PaperCycleEntity, entry: PaperEntryEntity, exitPrice: Double, reason: String, now: Long, idempotencySeed: String) {
+    private suspend fun closeSingleEntryLocked(cycle: PaperCycleEntity, entry: PaperEntryEntity, exitPrice: Double, reason: String, now: Long, idempotencySeed: String) {
         if (entry.status != "FILLED" || entry.remainingQuantity <= 1e-12) return
         val closeQty = entry.remainingQuantity
         val pnl = realizedPnl(entry.direction, entry.fillPrice ?: exitPrice, exitPrice, closeQty) - (entry.fee * (closeQty / max(entry.filledQuantity, 1e-12)) / 2.0)
@@ -389,7 +389,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
             price = exitPrice, dedupeKey = "close-$idem"))
     }
 
-    private fun executeCycleTakeProfitLocked(context: Context, cycle: PaperCycleEntity, tpPrice: Double, now: Long) {
+    private suspend fun executeCycleTakeProfitLocked(context: Context, cycle: PaperCycleEntity, tpPrice: Double, now: Long) {
         val tpOrder = dao.getActiveTpForCycle(cycle.id)
         tpOrder?.let { dao.updateOrder(it.copy(status = "FILLED", filledPrice = tpPrice, filledQuantity = it.quantity, executedAt = now, updatedAt = now)) }
         val entries = dao.getOpenFilledEntries(cycle.id)
@@ -427,7 +427,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         if (cycle.reentryEnabled) createReentryPlanLocked(cycle, tpPrice, now)
     }
 
-    private fun createReentryPlanLocked(cycle: PaperCycleEntity, closePrice: Double, now: Long) {
+    private suspend fun createReentryPlanLocked(cycle: PaperCycleEntity, closePrice: Double, now: Long) {
         val existing = dao.getOpenReentryPlanForSource(cycle.id)
         if (existing != null) return
         val trigger = if (cycle.direction == "LONG") closePrice * (1.0 - cycle.reentryPercent / 100.0) else closePrice * (1.0 + cycle.reentryPercent / 100.0)
@@ -439,7 +439,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
             price = trigger, dedupeKey = "re-wait-${cycle.id}"))
     }
 
-    private fun processReentryPlanLocked(context: Context, plan: PaperReentryPlanEntity, mark: Double, now: Long) {
+    private suspend fun processReentryPlanLocked(context: Context, plan: PaperReentryPlanEntity, mark: Double, now: Long) {
         if (plan.status !in setOf("WAITING", "TRIGGERED")) return
         val reached = if (plan.direction == "LONG") mark <= plan.triggerPrice else mark >= plan.triggerPrice
         if (!reached && plan.status == "WAITING") return
@@ -456,7 +456,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         }
     }
 
-    private fun finalizeIfEmptyLocked(cycle: PaperCycleEntity, mark: Double, now: Long, reason: String) {
+    private suspend fun finalizeIfEmptyLocked(cycle: PaperCycleEntity, mark: Double, now: Long, reason: String) {
         val pending = dao.getEntries(cycle.id).any { it.status == "PENDING" }
         if (pending) return
         if (cycle.status == "CLOSED") return
