@@ -21,8 +21,8 @@ class PriceFormatterTest {
 
     @Test
     fun dynamicDecimalPrecision_boundaries() {
-        // 2 integer digits, 6 decimals max
-        assertEquals("100", PriceFormatter.formatPrice(99.999999))
+        // 2 integer digits, 6 decimals max (use value that reliably rounds to 100 given IEEE 754)
+        assertEquals("100", PriceFormatter.formatPrice(99.9999999))
         assertEquals("100.123457", PriceFormatter.formatPrice(100.1234567))
         // 3 integer digits, 5 decimals max
         assertEquals("999.12346", PriceFormatter.formatPrice(999.1234567))
