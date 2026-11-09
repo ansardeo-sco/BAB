@@ -60,23 +60,34 @@ jobs:
           python3 - <<'PY'
           import glob, xml.etree.ElementTree as ET, json, os, urllib.request
           parts = []
-          for f in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+          xmls = glob.glob('app/build/**/TEST-*.xml', recursive=True) + glob.glob('app/build/test-results/**/*.xml', recursive=True)
+          parts.append('XML files: ' + str(xmls[:20]))
+          for pth in sorted(set(xmls)):
               try:
-                  t = ET.parse(f).getroot()
+                  t = ET.parse(pth).getroot()
+                  parts.append(f'== {pth} root={t.tag} tests={t.get("tests")} failures={t.get("failures")} errors={t.get("errors")}')
                   for tc in t.iter('testcase'):
-                      fail = tc.find('failure') or tc.find('error')
-                      if fail is not None:
-                          parts.append(f"FAIL {tc.get('classname')}.{tc.get('name')}\n{(fail.get('message') or '')[:500]}\n{(fail.text or '')[:1200]}")
+                      fail = tc.find('failure') or tc.find('error') or tc.find('skipped')
+                      if fail is not None and fail.tag in ('failure','error'):
+                          parts.append(f"FAIL {tc.get('classname')}.{tc.get('name')}: {(fail.get('message') or '')[:400]}\n{(fail.text or '')[:1000]}")
+                  if t.tag == 'testsuite':
+                      so = t.find('system-out')
+                      se = t.find('system-err')
+                      if so is not None and (so.text or '').strip(): parts.append('system-out: '+(so.text or '')[:1200])
+                      if se is not None and (se.text or '').strip(): parts.append('system-err: '+(se.text or '')[:1200])
               except Exception as e:
-                  parts.append(f'parse error {f}: {e}')
-          body = 'Android unit test failures (auto):\n\n' + ('\n---\n'.join(parts) if parts else 'No failure details parsed from XML. Check android-test-reports artifact/logs.')
-          sha = os.environ['GITHUB_SHA']
-          repo = os.environ['GITHUB_REPOSITORY']
+                  parts.append(f'parse error {pth}: {e}')
+          if not xmls:
+              for root,_,files in os.walk('app/build'):
+                  for fn in files:
+                      if fn.endswith('.xml') or 'test' in fn.lower():
+                          parts.append('found: '+os.path.join(root,fn))
+              parts = parts[:40]
+          body = 'Android unit test diagnostic (auto):\n\n' + '\n\n'.join(parts)
+          sha = os.environ['GITHUB_SHA']; repo = os.environ['GITHUB_REPOSITORY']
           req = urllib.request.Request(f'https://api.github.com/repos/{repo}/commits/{sha}/comments', data=json.dumps({'body': body[:60000]}).encode(), headers={'Authorization': f'Bearer {os.environ["GH_TOKEN"]}', 'Accept':'application/vnd.github+json','Content-Type':'application/json'})
-          try:
-              urllib.request.urlopen(req).read(); print('posted')
-          except Exception as e:
-              print('post failed', e); print(body)
+          try: urllib.request.urlopen(req).read(); print('posted')
+          except Exception as e: print('post failed', e); print(body)
           PY
 
       - name: Verify APK
