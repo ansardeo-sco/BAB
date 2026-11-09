@@ -22,6 +22,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -35,11 +41,11 @@ jobs:
           test -f app/src/main/AndroidManifest.xml
           test -f app/src/main/res/layout/activity_main.xml
 
-      - name: Compile (assemble debug)
-        run: gradle --no-daemon assembleDebug
+      - name: Build debug APK (compile check)
+        run: gradle --no-daemon --stacktrace assembleDebug
 
       - name: Run Android unit tests
-        run: gradle --no-daemon testDebugUnitTest --continue || true
+        run: gradle --no-daemon --stacktrace testDebugUnitTest
 
       - name: Verify APK
         run: |
@@ -47,6 +53,7 @@ jobs:
           ls -lh app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: BAB-APK-debug
@@ -55,8 +62,9 @@ jobs:
           retention-days: 14
 
   backend-checks:
-    name: Backend Checks (optional)
+    name: Backend Checks (optional legacy)
     runs-on: ubuntu-latest
+    continue-on-error: true
     if: hashFiles('backend/requirements.txt') != ''
     steps:
       - name: Checkout
@@ -76,4 +84,4 @@ jobs:
         run: python -m compileall -q .
       - name: Run backend tests
         working-directory: backend
-        run: pytest -q --continue-on-collection-errors || true
+        run: pytest -q
