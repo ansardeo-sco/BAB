@@ -36,10 +36,31 @@ jobs:
           test -f app/src/main/res/layout/activity_main.xml
 
       - name: Build debug APK (compile check)
-        run: gradle --no-daemon --stacktrace assembleDebug
+        id: build
+        run: |
+          set +e
+          gradle --no-daemon --stacktrace assembleDebug 2>&1 | tee /tmp/build.log
+          ec=${PIPESTATUS[0]}
+          echo "exit=$ec" >> $GITHUB_OUTPUT
+          if [ $ec -ne 0 ]; then
+            echo "---- COMPILE FAILURE (tail) ----"
+            tail -n 220 /tmp/build.log || true
+            echo "---- COMPILE FAILURE (errors) ----"
+            grep -n "e: \|FAILURE\|Execution failed\|error:\|Unresolved\|Type mismatch\|None of the following\|Cannot access\|Symbol\|Expecting" /tmp/build.log | tail -n 80 || true
+          fi
+          exit $ec
 
       - name: Run Android unit tests
-        run: gradle --no-daemon --stacktrace testDebugUnitTest
+        id: tests
+        run: |
+          set +e
+          gradle --no-daemon --stacktrace testDebugUnitTest 2>&1 | tee /tmp/test.log
+          ec=${PIPESTATUS[0]}
+          if [ $ec -ne 0 ]; then
+            echo "---- TEST FAILURE (tail) ----"; tail -n 220 /tmp/test.log || true
+            grep -n "FAILED\|FAILURE\|There were failing tests\|> Task .* FAILED" /tmp/test.log | tail -n 60 || true
+          fi
+          exit $ec
 
       - name: Upload test reports (diagnostic)
         if: always()
