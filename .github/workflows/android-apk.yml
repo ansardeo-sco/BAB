@@ -65,7 +65,6 @@ jobs:
     name: Backend Checks (optional legacy)
     runs-on: ubuntu-latest
     continue-on-error: true
-    if: ${{ hashFiles('backend/requirements.txt') != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
