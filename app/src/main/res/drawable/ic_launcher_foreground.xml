@@ -1,17 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <!-- Bitcoin-style B with two vertical strokes, centered in safe zone -->
-    <!-- Left vertical strokes -->
-    <path android:fillColor="#F0B90B" android:pathData="M43,26 h4 v56 h-4 z"/>
-    <path android:fillColor="#F0B90B" android:pathData="M51,26 h4 v56 h-4 z"/>
-    <!-- Upper bowl of B -->
-    <path android:fillColor="#F0B90B" android:pathData="M55,30 h8 a10,10 0 0 1 0,20 h-8 v-6 h7 a4,4 0 0 0 0,-8 h-7 z"/>
-    <!-- Lower bowl of B -->
-    <path android:fillColor="#F0B90B" android:pathData="M55,52 h10 a11,11 0 0 1 0,22 h-10 v-6 h9 a5,5 0 0 0 0,-10 h-9 z"/>
-    <!-- Stem connector -->
-    <path android:fillColor="#F0B90B" android:pathData="M35,30 h8 v44 h-8 z"/>
-</vector>
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/ic_launcher_fg"
+    android:inset="18dp" />
