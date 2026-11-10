@@ -370,9 +370,9 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         dao.upsertWallet(wallet.copy(availableBalance = wallet.availableBalance - required, reservedMargin = wallet.reservedMargin + required, updatedAt = now))
         val clientId = "avg-${stage.id}-${cycle.id}"
         val avgEntry = PaperEntryEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, direction = cycle.direction,
-            entryType = "AVERAGING", intendedPrice = trigger, fillPrice = null, requestedQuantity = 0.0, filledQuantity = 0.0,
-            remainingQuantity = 0.0, margin = margin, leverage = lev, notional = 0.0, status = "PENDING", isAveraging = true,
-            clientOrderId = clientId, createdAt = now, updatedAt = now)
+            entryType = "AVERAGING", status = "PENDING", margin = margin, leverage = lev, intendedPrice = trigger, fillPrice = null,
+            quantity = 0.0, filledQuantity = 0.0, remainingQuantity = 0.0, fee = 0.0, slPrice = null, slOrderId = null, slFixed = false,
+            clientOrderId = clientId, fillEventId = null, createdAt = now, filledAt = null, closedAt = null, updatedAt = now, closeReason = null, lastError = null)
         val entryId = dao.insertEntryIgnore(avgEntry)
         val resolvedEntryId = if (entryId > 0) entryId else (entries.firstOrNull { it.entryType == "AVERAGING" && it.clientOrderId == clientId }?.id ?: dao.getEntries(cycle.id).firstOrNull { it.entryType == "AVERAGING" }?.id ?: -1L)
         if (resolvedEntryId <= 0) return
