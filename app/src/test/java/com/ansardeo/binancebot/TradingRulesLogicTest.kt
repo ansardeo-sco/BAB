@@ -75,12 +75,12 @@ class TradingRulesLogicTest {
     }
 
     @Test fun averagingLimitPriceIsCalculatedFromInitialFillUsingLeverageFormula() {
-        val p = LeverageConfig.requireProfile(10) // Averaging 1.38%
+        val p = LeverageConfig.requireProfile(10) // Averaging 6.60%
         val initialFill = 100.0
         val longAvgPrice = initialFill * (1.0 - p.averagingPercent / 100.0)
         val shortAvgPrice = initialFill * (1.0 + p.averagingPercent / 100.0)
-        assertEquals(98.62, longAvgPrice, 1e-9)
-        assertEquals(101.38, shortAvgPrice, 1e-9)
+        assertEquals(93.4, longAvgPrice, 1e-9)
+        assertEquals(106.6, shortAvgPrice, 1e-9)
         // Averaging must be allowed only once per cycle (guarded by pending/filled checks + averagingDone).
         val averagingDone = false
         val hasPendingOrFilled = false
