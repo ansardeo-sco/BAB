@@ -72,7 +72,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="⌂&#10;Home"
+            android:text="Home"
             android:textColor="#F0B90B"
             android:textSize="12sp"
             android:textStyle="bold" />
@@ -83,7 +83,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="✚&#10;Manual"
+            android:text="Trade"
             android:textColor="#8190A5"
             android:textSize="12sp" />
 
@@ -93,7 +93,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="▣&#10;Positions"
+            android:text="Future"
             android:textColor="#8190A5"
             android:textSize="12sp" />
 
@@ -103,7 +103,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="⚙&#10;Settings"
+            android:text="Settings"
             android:textColor="#8190A5"
             android:textSize="12sp" />
 
@@ -113,7 +113,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="•••&#10;More"
+            android:text="More"
             android:textColor="#8190A5"
             android:textSize="12sp" />
 

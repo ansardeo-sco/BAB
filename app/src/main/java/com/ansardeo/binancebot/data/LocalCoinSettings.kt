@@ -65,11 +65,13 @@ data class LocalCoinSettings(
 
 object LocalCoinSettingsStore {
     private const val PREFS = "app_settings_local"
+    private const val GLOBAL_KEY = "settings___GLOBAL__"
 
     fun load(context: Context, symbol: String): LocalCoinSettings {
         val sym = symbol.uppercase()
-        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString("settings_$sym", null) ?: return LocalCoinSettings.sanitized(sym)
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val raw = prefs.getString("settings_$sym", null) ?: prefs.getString(GLOBAL_KEY, null)
+            ?: return LocalCoinSettings.sanitized(sym)
         return try {
             val j = JSONObject(raw)
             LocalCoinSettings.sanitized(
@@ -89,22 +91,34 @@ object LocalCoinSettingsStore {
         }
     }
 
+    fun loadGlobal(context: Context): LocalCoinSettings = load(context, "__GLOBAL__")
+
     fun save(context: Context, settings: LocalCoinSettings) {
         LeverageConfig.requireSupported(settings.leverage)
-        val j = JSONObject().apply {
-            put("enabledLong", settings.enabledLong)
-            put("enabledShort", settings.enabledShort)
-            put("marginAmount", settings.marginAmount)
-            put("leverage", settings.leverage)
-            put("oppositeEnabled", settings.oppositeEnabled)
-            put("oppositeMargin", settings.oppositeMargin)
-            put("averagingEnabled", settings.averagingEnabled)
-            put("averagingMargin", settings.averagingMargin)
-            put("reentryEnabled", settings.reentryEnabled)
-            // Percentages intentionally not stored; derived from leverage table.
-        }
+        val j = toJson(settings)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("settings_${settings.symbol.uppercase()}", j.toString())
             .apply()
+    }
+
+    fun saveGlobal(context: Context, settings: LocalCoinSettings) {
+        LeverageConfig.requireSupported(settings.leverage)
+        val j = toJson(settings)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(GLOBAL_KEY, j.toString())
+            .apply()
+    }
+
+    private fun toJson(settings: LocalCoinSettings): JSONObject = JSONObject().apply {
+        put("enabledLong", settings.enabledLong)
+        put("enabledShort", settings.enabledShort)
+        put("marginAmount", settings.marginAmount)
+        put("leverage", settings.leverage)
+        put("oppositeEnabled", settings.oppositeEnabled)
+        put("oppositeMargin", settings.oppositeMargin)
+        put("averagingEnabled", settings.averagingEnabled)
+        put("averagingMargin", settings.averagingMargin)
+        put("reentryEnabled", settings.reentryEnabled)
+        // Percentages intentionally not stored; derived from leverage table.
     }
 }

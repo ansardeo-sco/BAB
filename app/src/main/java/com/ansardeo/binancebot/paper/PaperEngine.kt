@@ -1,4 +1,4 @@
-package com.ansardeo.binancebot.paper
+﻿package com.ansardeo.binancebot.paper
 
 import android.content.Context
 import androidx.room.withTransaction
@@ -252,8 +252,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
 
     private suspend fun maybePlaceOppositeOnAveragingLocked(context: Context, cycle: PaperCycleEntity, avgEntry: PaperEntryEntity, now: Long) {
         if (!cycle.oppositeEnabled || cycle.oppositeDone) return
-        // only if no opposite-side position for that symbol is already open
-        val hasOpenAny = dao.countOpenCyclesAnyDirection(stage.id, cycle.symbol) > 1 // current cycle counts
+        // Only if no opposite-side position for that symbol is already open
         val oppositeDir = if (cycle.direction == "LONG") "SHORT" else "LONG"
         val hasOppositeDir = dao.countOpenCycles(stage.id, cycle.symbol, oppositeDir) > 0
         if (hasOppositeDir) {
@@ -263,7 +262,8 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
             return
         }
         val fillPrice = avgEntry.fillPrice ?: return
-        val margin = if (cycle.oppositeMargin > 0) cycle.oppositeMargin else avgEntry.margin
+        // Equal margin (averaging margin / filled averaging entry margin)
+        val margin = if (avgEntry.margin > 0.0) avgEntry.margin else cycle.averagingMargin
         val lev = cycle.leverage
         val wallet = ensureWallet()
         val required = margin + (margin * lev * feeRate)
@@ -277,7 +277,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         if (res.ok) {
             dao.updateCycle(dao.getCycle(cycle.id)!!.copy(oppositeDone = true, updatedAt = now))
             dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "OPPOSITE_PLACED",
-                message = "Opposite-side LIMIT $oppositeDir placed at averaging fill ${fmtPx(fillPrice)} with margin $margin USDT.", price = fillPrice, dedupeKey = "opp-${cycle.id}"))
+                message = "Opposite-side LIMIT $oppositeDir created at averaging fill ${fmtPx(fillPrice)} with equal margin ${fmt(margin)} USDT (pending LIMIT, ready for execution).", price = fillPrice, dedupeKey = "opp-${cycle.id}"))
         } else {
             dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "OPPOSITE_FAILED",
                 message = "Opposite-side entry failed: ${res.message}", dedupeKey = "opp-fail-${cycle.id}-$now"))
