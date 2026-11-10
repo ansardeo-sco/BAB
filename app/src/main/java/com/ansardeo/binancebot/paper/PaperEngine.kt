@@ -1,4 +1,4 @@
-﻿package com.ansardeo.binancebot.paper
+package com.ansardeo.binancebot.paper
 
 import android.content.Context
 import androidx.room.withTransaction
@@ -231,6 +231,10 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         }
         dao.updateCycle(updatedCycle)
         upsertCycleTpLocked(updatedCycle, now)
+        // As soon as initial entry is filled, automatically create same-direction Averaging LIMIT (once per cycle)
+        if (filledEntry.entryType == "INITIAL") {
+            placeAveragingLimitIfNeededLocked(context, dao.getCycle(cycle.id) ?: updatedCycle, now)
+        }
     }
 
     private suspend fun upsertCycleTpLocked(cycle: PaperCycleEntity, now: Long) {
@@ -333,35 +337,51 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
     }
 
     private suspend fun maybeTriggerAveragingLocked(context: Context, cycle: PaperCycleEntity, mark: Double, now: Long) {
-        if (!cycle.averagingEnabled || cycle.averagingDone || cycle.status != "ACTIVE") return
-        val avg = cycle.averageEntryPrice ?: return
-        val hasPendingAvg = dao.getEntries(cycle.id).any { it.entryType == "AVERAGING" && it.status == "PENDING" }
-        val hasFilledAvg = dao.getEntries(cycle.id).any { it.entryType == "AVERAGING" && it.status == "FILLED" }
-        if (hasPendingAvg || hasFilledAvg) return
+        // Averaging LIMIT is auto-created immediately after initial entry fill.
+        // Safe retry in case placement was skipped (e.g. insufficient balance) earlier.
+        placeAveragingLimitIfNeededLocked(context, cycle, now)
+    }
+
+    /**
+     * Auto-create same-direction Averaging LIMIT order (max 1/cycle) at the approved
+     * leverage-based averaging price as soon as initial entry is filled.
+     */
+    private suspend fun placeAveragingLimitIfNeededLocked(context: Context, cycle: PaperCycleEntity, now: Long) {
+        if (!cycle.averagingEnabled || cycle.averagingDone) return
+        if (cycle.status !in listOf("ACTIVE", "PENDING_ENTRY")) return
+        val entries = dao.getEntries(cycle.id)
+        if (entries.any { it.entryType == "AVERAGING" && (it.status == "PENDING" || it.status == "FILLED" || it.status == "PARTIALLY_FILLED") }) return
+        val hasInitialFilled = entries.any { it.entryType == "INITIAL" && it.status == "FILLED" }
+        if (!hasInitialFilled) return
+        val avg = cycle.averageEntryPrice ?: run {
+            val open = entries.filter { it.status == "FILLED" && it.remainingQuantity > 1e-12 }
+            val q = open.sumOf { it.remainingQuantity }; if (q > 1e-12) open.sumOf { (it.fillPrice ?: 0.0) * it.remainingQuantity } / q else null
+        } ?: return
         val trigger = if (cycle.direction == "LONG") avg * (1.0 - cycle.averagingPercent / 100.0) else avg * (1.0 + cycle.averagingPercent / 100.0)
-        val reached = if (cycle.direction == "LONG") mark <= trigger else mark >= trigger
-        if (!reached) return
         val wallet = ensureWallet()
         val margin = cycle.averagingMargin
         val lev = cycle.leverage
         val required = margin + (margin * lev * feeRate)
         if (wallet.availableBalance + 1e-9 < required) {
             dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "AVERAGING_SKIPPED",
-                message = "Averaging trigger reached but insufficient simulated balance.", price = mark, dedupeKey = "avg-skip-${cycle.id}-$now"))
+                message = "Averaging LIMIT not placed: insufficient simulated balance.", price = trigger, dedupeKey = "avg-skip-${cycle.id}"))
             return
         }
-        dao.upsertWallet(wallet.copy(availableBalance = wallet.availableBalance - required, reservedMargin = wallet.reservedMargin + margin, updatedAt = now))
-        val clientOrderId = "entry-${stage.id}-${cycle.id}-avg-$now-${UUID.randomUUID()}"
-        val avgEntry = PaperEntryEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, direction = cycle.direction, entryType = "AVERAGING",
-            status = "PENDING", margin = margin, leverage = lev, intendedPrice = trigger, clientOrderId = clientOrderId, createdAt = now, updatedAt = now)
-        val entryId = dao.insertEntry(avgEntry)
-        dao.insertOrder(PaperOrderEntity(stage = stage.id, cycleId = cycle.id, entryId = entryId, symbol = cycle.symbol, direction = cycle.direction,
+        dao.upsertWallet(wallet.copy(availableBalance = wallet.availableBalance - required, reservedMargin = wallet.reservedMargin + required, updatedAt = now))
+        val clientId = "avg-${stage.id}-${cycle.id}"
+        val avgEntry = PaperEntryEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, direction = cycle.direction,
+            entryType = "AVERAGING", intendedPrice = trigger, fillPrice = null, requestedQuantity = 0.0, filledQuantity = 0.0,
+            remainingQuantity = 0.0, margin = margin, leverage = lev, notional = 0.0, status = "PENDING", isAveraging = true,
+            clientOrderId = clientId, createdAt = now, updatedAt = now)
+        val entryId = dao.insertEntryIgnore(avgEntry)
+        val resolvedEntryId = if (entryId > 0) entryId else (entries.firstOrNull { it.entryType == "AVERAGING" && it.clientOrderId == clientId }?.id ?: dao.getEntries(cycle.id).firstOrNull { it.entryType == "AVERAGING" }?.id ?: -1L)
+        if (resolvedEntryId <= 0) return
+        dao.insertOrderIgnore(PaperOrderEntity(stage = stage.id, cycleId = cycle.id, entryId = resolvedEntryId, symbol = cycle.symbol, direction = cycle.direction,
             side = if (cycle.direction == "LONG") "BUY" else "SELL", orderType = "ENTRY_LIMIT", triggerPrice = trigger, limitPrice = trigger,
-            quantity = 0.0, status = "ACTIVE", clientOrderId = clientOrderId, createdAt = now, updatedAt = now))
+            quantity = 0.0, status = "ACTIVE", clientOrderId = clientId, createdAt = now, updatedAt = now))
         dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "AVERAGING_PLACED",
-            message = "Averaging LIMIT placed @ ${fmtPx(trigger)} (1 per cycle max).", price = trigger, dedupeKey = "avg-place-$clientOrderId"))
+            message = "Averaging LIMIT auto-created @ ${fmtPx(trigger)} (1 per cycle max).", price = trigger, dedupeKey = "avg-placed-${cycle.id}"))
     }
-
     private suspend fun closeSingleEntryLocked(cycle: PaperCycleEntity, entry: PaperEntryEntity, exitPrice: Double, reason: String, now: Long, idempotencySeed: String) {
         if (entry.status != "FILLED" || entry.remainingQuantity <= 1e-12) return
         val closeQty = entry.remainingQuantity

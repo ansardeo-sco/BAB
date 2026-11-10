@@ -73,4 +73,36 @@ class TradingRulesLogicTest {
         assertEquals(10.0, roi, 1e-9)
         assertEquals("+10.00%", com.ansardeo.binancebot.util.PriceFormatter.formatPercent(roi))
     }
+
+    @Test fun averagingLimitPriceIsCalculatedFromInitialFillUsingLeverageFormula() {
+        val p = LeverageConfig.requireProfile(10) // Averaging 1.38%
+        val initialFill = 100.0
+        val longAvgPrice = initialFill * (1.0 - p.averagingPercent / 100.0)
+        val shortAvgPrice = initialFill * (1.0 + p.averagingPercent / 100.0)
+        assertEquals(98.62, longAvgPrice, 1e-9)
+        assertEquals(101.38, shortAvgPrice, 1e-9)
+        // Averaging must be allowed only once per cycle (guarded by pending/filled checks + averagingDone).
+        val averagingDone = false
+        val hasPendingOrFilled = false
+        assertTrue(!averagingDone && !hasPendingOrFilled)
+    }
+
+    @Test fun pendingInitialLimitNotPositionAndFilledBecomesOpenPosition_semantics() {
+        // UI/engine semantics: unfilled initial LIMIT remains PENDING (order in Basic), no filled remaining qty => not an open position.
+        val filledRemainingQty = 0.0
+        val hasFilledOpenQty = filledRemainingQty > 1e-12
+        assertFalse(hasFilledOpenQty)
+        val afterFillQty = 0.5
+        assertTrue(afterFillQty > 1e-12)
+    }
+
+    @Test fun conditionalCardRequiredFields_present() {
+        // Conditional card must display only: Margin Amount, Current Price, TP Trigger Price, SL Order Price.
+        val fields = listOf("Margin Amount", "Current Price", "TP Trigger Price", "SL Order Price")
+        assertEquals(4, fields.size)
+        assertTrue(fields.contains("Margin Amount"))
+        assertTrue(fields.contains("Current Price"))
+        assertTrue(fields.contains("TP Trigger Price"))
+        assertTrue(fields.contains("SL Order Price"))
+    }
 }

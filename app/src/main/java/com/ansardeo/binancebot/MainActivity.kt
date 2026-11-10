@@ -1,4 +1,4 @@
-package com.ansardeo.binancebot
+﻿package com.ansardeo.binancebot
 
 import android.content.Context
 import android.content.Intent
@@ -107,9 +107,9 @@ class MainActivity : AppCompatActivity() {
     private fun updateTopStatus() {
         val s = stage()
         val label = when (s) {
-            TradingStage.STAGE_1 -> "STAGE 1 — VIRTUAL"
-            TradingStage.STAGE_2 -> "STAGE 2 — DEMO"
-            TradingStage.STAGE_3 -> "STAGE 3 — LIVE"
+            TradingStage.STAGE_1 -> "STAGE 1 â€” VIRTUAL"
+            TradingStage.STAGE_2 -> "STAGE 2 â€” DEMO"
+            TradingStage.STAGE_3 -> "STAGE 3 â€” LIVE"
         }
         topStatus.text = label
         topStatus.setTextColor(if (s == TradingStage.STAGE_3) red else green)
@@ -187,22 +187,22 @@ class MainActivity : AppCompatActivity() {
         stopRefresh()
         val root = pageContainer()
         root.addView(text("Home", 23f, white, true))
-        root.addView(text("BAB — Binance Android Bot — ${stage().title}", 12f, yellow, true))
-        root.addView(text("Live USDⓈ-M Futures market (public, read-only). Simulated stages never submit real orders.", 11f, muted))
+        root.addView(text("BAB â€” Binance Android Bot â€” ${stage().title}", 12f, yellow, true))
+        root.addView(text("Live USDâ“ˆ-M Futures market (public, read-only). Simulated stages never submit real orders.", 11f, muted))
         addSpace(root, 8)
 
         val s = stage()
         val phaseCard = addCard(root, "TRADING STAGES", "Data is isolated per stage. Stage 1/2 never submit real Binance orders.")
-        addLabel(phaseCard, "Stage 1", "Live Market Prices + Virtual Balance (100 USDT)${if (s==TradingStage.STAGE_1) " — ACTIVE" else ""}", if (s==TradingStage.STAGE_1) green else muted)
-        addLabel(phaseCard, "Stage 2", "Demo Trading (simulated, no real funds)${if (s==TradingStage.STAGE_2) " — ACTIVE" else ""}", if (s==TradingStage.STAGE_2) green else muted)
-        addLabel(phaseCard, "Stage 3", "Live Trading (disabled by default; requires explicit authorization)${if (s==TradingStage.STAGE_3) " — SELECTED" else ""}", if (s==TradingStage.STAGE_3) red else lockedColor)
+        addLabel(phaseCard, "Stage 1", "Live Market Prices + Virtual Balance (100 USDT)${if (s==TradingStage.STAGE_1) " â€” ACTIVE" else ""}", if (s==TradingStage.STAGE_1) green else muted)
+        addLabel(phaseCard, "Stage 2", "Demo Trading (simulated, no real funds)${if (s==TradingStage.STAGE_2) " â€” ACTIVE" else ""}", if (s==TradingStage.STAGE_2) green else muted)
+        addLabel(phaseCard, "Stage 3", "Live Trading (disabled by default; requires explicit authorization)${if (s==TradingStage.STAGE_3) " â€” SELECTED" else ""}", if (s==TradingStage.STAGE_3) red else lockedColor)
         addSpace(phaseCard, 6)
         addActionButton(phaseCard, "SWITCH STAGE (tap to cycle)") {
             val next = when (stage()) { TradingStage.STAGE_1 -> TradingStage.STAGE_2; TradingStage.STAGE_2 -> TradingStage.STAGE_3; TradingStage.STAGE_3 -> TradingStage.STAGE_1 }
             StageStore.setCurrent(this, next); updateTopStatus(); toast("Switched to ${next.shortLabel}"); showPage("Home")
         }
 
-        val balCard = addCard(root, "WALLET — ${stage().shortLabel}")
+        val balCard = addCard(root, "WALLET â€” ${stage().shortLabel}")
         val balText = priceTv("-- USDT", 20f, green); balCard.addView(balText)
         val balSub = text("Loading ${stage().shortLabel} wallet...", 11f, muted); addSpace(balCard, 4); balCard.addView(balSub)
         if (stage() == TradingStage.STAGE_3) balCard.addView(text("Stage 3 live balance integration is disabled by default. No real orders.", 11f, red))
@@ -249,14 +249,14 @@ class MainActivity : AppCompatActivity() {
                 if (gen != refreshGen || currentPage != "Home") return@launch
                 lastOverview = ov
                 if (!ov.dataAvailable) {
-                    mStatus.text = "Unavailable — ${ov.error ?: "unable to load live prices"} (retrying)"
+                    mStatus.text = "Unavailable â€” ${ov.error ?: "unable to load live prices"} (retrying)"
                     mStatus.setTextColor(red)
                     mUpdated.text = "Last update: --"
                     listOf(secVol, secGain, secLoss).forEach { it.removeAllViews(); it.addView(text("Unable to load live prices. Retrying...", 12f, red)) }
                     renderFavorites(secFav, null)
                 } else {
                     val label = if (ov.stale) "Stale" else if (ov.live) "Live" else ov.status
-                    mStatus.text = "$label — Binance USDⓈ-M Futures (public, read-only)"
+                    mStatus.text = "$label â€” Binance USDâ“ˆ-M Futures (public, read-only)"
                     mStatus.setTextColor(if (ov.stale) yellow else green)
                     mUpdated.text = "Last update: ${ov.lastUpdate ?: "--"} (auto-refresh)"
                     renderTickerList(secVol, ov.volumeLeaders)
@@ -389,7 +389,7 @@ class MainActivity : AppCompatActivity() {
                     if (myGen != refreshGen || currentPage != "Trade" || selectedSym() != sym) return@launch
                     currentLivePrice = px
                     livePriceTv.text = "Live price: ${PriceFormatter.formatPrice(currentLivePrice)} USDT"
-                    liveStatus.text = if (currentLivePrice != null) "Live public mark/price (auto-refresh)" else "Price unavailable — retrying"
+                    liveStatus.text = if (currentLivePrice != null) "Live public mark/price (auto-refresh)" else "Price unavailable â€” retrying"
                     liveStatus.setTextColor(if (currentLivePrice != null) muted else red)
                     if (!userEditedEntryPrice && currentLivePrice != null && entryPriceInput.text.isNullOrBlank()) {
                         entryPriceInput.setText(PriceFormatter.formatPrice(currentLivePrice))
@@ -436,7 +436,7 @@ class MainActivity : AppCompatActivity() {
 
         submit.setOnClickListener {
             val sym = selectedSym()
-            if (sym.isBlank() || !sym.endsWith("USDT")) { toast("Select a valid USDⓈ-M symbol"); return@setOnClickListener }
+            if (sym.isBlank() || !sym.endsWith("USDT")) { toast("Select a valid USDâ“ˆ-M symbol"); return@setOnClickListener }
             val intended = entryPriceInput.text.toString().toDoubleOrNull()
             if (intended == null || intended <= 0.0) { toast("Enter a valid intended LIMIT entry price"); return@setOnClickListener }
             val dir = selectedDir()
@@ -476,15 +476,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun fmtTime(ts: Long): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(ts))
 
-    // ---------------- FUTURE (Positions renamed) ----------------
+    // ---------------- FUTURE ----------------
     private fun positionsPage() /* Future tab */ {
         stopRefresh(); updateTopStatus()
         val root = pageContainer()
-        root.addView(text("Future", 23f, white, true))
-        root.addView(text("${stage().title} — Position, Open Order, History. Stage 1/2 simulated.", 12f, muted))
-        addSpace(root, 8)
         val tabBar = row().apply { background = rounded(card, 12); setPadding(dp(6), dp(6), dp(6), dp(6)) }
-        root.addView(tabBar); addSpace(root, 10)
+        root.addView(tabBar); addSpace(root, 8)
         val subBar = row().apply { background = rounded(card, 10); setPadding(dp(4), dp(4), dp(4), dp(4)) }
         root.addView(subBar); addSpace(root, 8)
         val body = column(); root.addView(body)
@@ -518,36 +515,50 @@ class MainActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 try {
                     val dao = paperDb.dao(); val sid = stageId()
-                    val prices = (lastOverview ?: runCatching { marketRepo.getOverview().also { lastOverview = it } }.getOrNull())?.symbols ?: emptyMap()
+                    val ov = (lastOverview ?: runCatching { marketRepo.getOverview().also { lastOverview = it } }.getOrNull())
+                    val prices = ov?.symbols ?: emptyMap()
+                    val priceState = when {
+                        ov == null -> "Loading"
+                        !ov.dataAvailable -> "Error"
+                        ov.stale -> "Stale"
+                        else -> "Live"
+                    }
                     val active = dao.getActiveCyclesWithEntries(sid).filter { cwe ->
                         cwe.cycle.status in listOf("PENDING_ENTRY","ACTIVE","CLOSING") &&
                             (cwe.cycle.totalRemainingQuantity > 1e-12 || cwe.entries.any { e -> e.status == "PENDING" || e.remainingQuantity > 1e-12 })
                     }
+                    // Position -> Open: only genuinely executed and currently open positions
+                    val openPositions = active.filter { cwe ->
+                        cwe.cycle.status != "PENDING_ENTRY" &&
+                            cwe.entries.any { e -> e.status == "FILLED" && e.remainingQuantity > 1e-12 }
+                    }
                     val allOrders = dao.getActiveOrders(sid).filter { it.status == "ACTIVE" }
                     val cyclesAll = dao.getRecentCycles(sid, 300)
+                    val cycleById = cyclesAll.associateBy { it.id }
                     val openEntryOrders = allOrders.filter { it.orderType == "ENTRY_LIMIT" }
                     val protectiveOrders = allOrders.filter { it.orderType == "CYCLE_TP" || it.orderType == "ENTRY_SL" }
-                    val reentries = dao.getPendingReentryPlans(sid)
+                    val reentries = dao.getPendingReentryPlans(sid).filter { it.status !in listOf("EXECUTED","CANCELLED","FAILED") }
                     val history = dao.getHistoryCloses(sid, 500)
+                    // Conditional opposite triggers (awaiting averaging execution) - pending trigger, shown in Conditional
                     val conditionalOpposites = cyclesAll.filter { c ->
                         c.oppositeEnabled && !c.oppositeDone && c.status in listOf("PENDING_ENTRY","ACTIVE","CLOSING") &&
                             dao.getEntries(c.id).any { it.entryType == "AVERAGING" && it.status == "PENDING" } &&
                             dao.countOpenCycles(sid, c.symbol, if (c.direction == "LONG") "SHORT" else "LONG") == 0
                     }
-                    val posCount = active.size
-                    val openOrderCount = openEntryOrders.size + conditionalOpposites.size + reentries.count { it.status == "WAITING" }
-                    stylePrimary(posCount, openOrderCount, history.size)
+                    val basicCount = openEntryOrders.size + reentries.size
+                    val conditionalCount = protectiveOrders.groupBy { it.cycleId }.size + conditionalOpposites.size
+                    stylePrimary(openPositions.size, basicCount, history.size)
                     subBar.visibility = if (primaryTab == 2) View.GONE else View.VISIBLE
-                    if (primaryTab == 0) styleSub("Open (${active.size})", "Closed (${history.size})")
-                    else if (primaryTab == 1) styleSub("Basic (${openEntryOrders.size + reentries.count { it.status != "EXECUTED" && it.status != "CANCELLED" && it.status != "FAILED" }})", "Conditional (${conditionalOpposites.size + protectiveOrders.groupBy { it.cycleId }.size})")
+                    if (primaryTab == 0) styleSub("Open (${openPositions.size})", "Closed (${history.size})")
+                    else if (primaryTab == 1) styleSub("Basic ($basicCount)", "Conditional ($conditionalCount)")
                     body.removeAllViews()
                     when (primaryTab) {
-                        0 -> if (positionSub == 0) renderPositionsOpen(body, active, prices) else renderPositionsClosed(body, history)
-                        1 -> if (orderSub == 0) renderOrdersBasic(body, openEntryOrders, reentries) else renderOrdersConditional(body, protectiveOrders, conditionalOpposites, cyclesAll, dao, sid)
+                        0 -> if (positionSub == 0) renderPositionsOpen(body, openPositions, prices, priceState) else renderPositionsClosed(body, history)
+                        1 -> if (orderSub == 0) renderOrdersBasic(body, openEntryOrders, reentries, prices, priceState) else renderOrdersConditional(body, protectiveOrders, conditionalOpposites, cycleById, prices, priceState)
                         2 -> renderHistoryPrimary(body, history)
                     }
                 } catch (e: Exception) {
-                    body.removeAllViews(); body.addView(text("Unable to load: ${e.message ?: "unknown error"}", 12f, red))
+                    body.removeAllViews(); body.addView(text("Unable to load", 12f, red))
                 }
             }
         }
@@ -563,144 +574,174 @@ class MainActivity : AppCompatActivity() {
         stylePrimary(0,0,0); styleSub("Open","Closed"); render()
     }
 
-    private fun renderPositionsOpen(body: LinearLayout, active: List<PaperCycleWithEntries>, prices: Map<String, Ticker>) {
-        val box = addCard(body, "POSITION — OPEN", "Currently open positions (per-entry independent SL, cycle TP)")
-        if (active.isEmpty()) { addSpace(box, 6); box.addView(text("No open positions.", 13f, muted)); return }
+    private fun makeItemCard(parent: LinearLayout): LinearLayout {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(card, 14)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+        }
+        parent.addView(box, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+        return box
+    }
+
+    private fun currentPriceText(prices: Map<String, Ticker>, symbol: String, state: String): String {
+        val px = prices[symbol]?.markPrice ?: prices[symbol]?.lastPrice
+        return when {
+            px != null -> PriceFormatter.formatPrice(px)
+            state == "Loading" -> "Loading..."
+            state == "Stale" -> "Stale"
+            state == "Error" -> "Unavailable"
+            else -> "--"
+        }
+    }
+
+    private fun renderPositionsOpen(body: LinearLayout, active: List<PaperCycleWithEntries>, prices: Map<String, Ticker>, priceState: String) {
+        if (active.isEmpty()) { body.addView(text("No open positions.", 13f, muted)); return }
         for (cwe in active) {
             val c = cwe.cycle
-            val px = prices[c.symbol]?.markPrice ?: prices[c.symbol]?.lastPrice
             val openEntries = cwe.entries.filter { it.status == "FILLED" && it.remainingQuantity > 1e-12 }
-            val pendingEntries = cwe.entries.filter { it.status == "PENDING" }
+            if (openEntries.isEmpty()) continue
+            val px = prices[c.symbol]?.markPrice ?: prices[c.symbol]?.lastPrice
             val qty = openEntries.sumOf { it.remainingQuantity }
             val avg = c.averageEntryPrice ?: openEntries.firstOrNull()?.fillPrice
             val margin = openEntries.sumOf { it.margin * (it.remainingQuantity / kotlin.math.max(it.filledQuantity, 1e-12)) }
             val unreal = if (px != null && avg != null && qty > 1e-12) if (c.direction == "LONG") (px - avg) * qty else (avg - px) * qty else null
             val roi = if (unreal != null && margin > 1e-12) (unreal / margin) * 100.0 else null
-            addSpace(box, 10)
+            val box = makeItemCard(body)
             val header = row().apply { isClickable = true; setOnClickListener { openDetail(c.symbol) } }
             header.addView(text("${c.symbol}  ${c.direction}", 15f, if (c.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
-            header.addView(text("Cycle #${c.id}", 11f, muted, true)); box.addView(header)
-            addLabel(box, "Status", c.status + if (pendingEntries.isNotEmpty()) " (${pendingEntries.size} pending LIMIT entry)" else "", yellow)
+            header.addView(text("${c.leverage}x", 12f, muted, true)); box.addView(header)
+            addLabel(box, "Current Price", currentPriceText(prices, c.symbol, priceState), white, true)
             addLabel(box, "Avg Entry", PriceFormatter.formatPrice(avg), white, true)
-            addLabel(box, "Current Price", PriceFormatter.formatPrice(px), white, true)
             addLabel(box, "Remaining Qty", PriceFormatter.formatQty(qty))
-            addLabel(box, "Margin (open)", PriceFormatter.formatUsdt(margin))
-            addLabel(box, "Leverage", "${c.leverage}x")
+            addLabel(box, "Margin", PriceFormatter.formatUsdt(margin))
             addLabel(box, "Unrealized PNL", PriceFormatter.formatPnl(unreal), pnlColor(unreal), true)
             addLabel(box, "ROI", PriceFormatter.formatPercent(roi), pnlColor(roi), true)
             addLabel(box, "Cycle TP", PriceFormatter.formatPrice(c.takeProfitPrice), green, true)
-            openEntries.forEach { e -> addLabel(box, "${e.entryType} entry SL (fixed)", "${PriceFormatter.formatPrice(e.slPrice)} | qty ${PriceFormatter.formatQty(e.remainingQuantity)}", red) }
+            openEntries.forEach { e -> addLabel(box, "Entry SL", PriceFormatter.formatPrice(e.slPrice), red, true) }
         }
     }
 
     private fun renderPositionsClosed(body: LinearLayout, history: List<PaperHistoryCloseEntity>) {
-        val box = addCard(body, "POSITION — CLOSED", "Closed positions (TP/SL/Liquidation). Individual entry records preserved, no merging.")
-        if (history.isEmpty()) { addSpace(box, 6); box.addView(text("No closed positions.", 13f, muted)); return }
-        val tf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        if (history.isEmpty()) { body.addView(text("No closed positions.", 13f, muted)); return }
+        val tf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         for (h in history) {
-            addSpace(box, 10)
+            val box = makeItemCard(body)
             val header = row()
-            header.addView(text("${h.symbol} ${h.direction} — ${h.closingReason}", 14f, when (h.closingReason) { "TP" -> green; "SL","LIQUIDATION" -> red; else -> white }, true), LinearLayout.LayoutParams(0, -2, 1f))
-            header.addView(text("Cycle #${h.cycleId}", 11f, muted, true)); box.addView(header)
-            addLabel(box, "Entry (actual fill)", PriceFormatter.formatPrice(h.entryFillPrice), white, true)
-            addLabel(box, "Exit (actual fill)", PriceFormatter.formatPrice(h.exitFillPrice), white, true)
-            addLabel(box, "Margin / Leverage", "${PriceFormatter.formatUsdt(h.entryMargin)} / ${h.leverage}x")
-            addLabel(box, "Closed Qty", PriceFormatter.formatQty(h.closedQuantity))
+            header.addView(text("${h.symbol} ${h.direction}", 15f, if (h.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(text(h.closingReason, 12f, when (h.closingReason) { "TP" -> green; "SL","LIQUIDATION" -> red; else -> white }, true))
+            box.addView(header)
+            addLabel(box, "Entry", PriceFormatter.formatPrice(h.entryFillPrice), white, true)
+            addLabel(box, "Exit", PriceFormatter.formatPrice(h.exitFillPrice), white, true)
+            addLabel(box, "Qty", PriceFormatter.formatQty(h.closedQuantity))
+            addLabel(box, "Margin / Lev", "${PriceFormatter.formatUsdt(h.entryMargin)} / ${h.leverage}x")
             addLabel(box, "Realized PNL", "${PriceFormatter.formatPnl(h.realizedPnlUsdt)} (${PriceFormatter.formatPercent(h.realizedPnlPercent)})", pnlColor(h.realizedPnlUsdt), true)
-            addLabel(box, "Entry / Exit Time", "${tf.format(java.util.Date(h.entryTimestamp))} → ${tf.format(java.util.Date(h.exitTimestamp))}")
-            addLabel(box, "Entry ID", "#${h.entryId}")
+            addLabel(box, "Closed", tf.format(java.util.Date(h.exitTimestamp)))
         }
     }
 
-    private fun renderOrdersBasic(body: LinearLayout, entryOrders: List<PaperOrderEntity>, reentries: List<PaperReentryPlanEntity>) {
-        val box = addCard(body, "OPEN ORDER — BASIC", "Pending/ready entry LIMIT orders (initial, averaging, re-entry, opposite-side after averaging executes)")
-        val tf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+    private fun renderOrdersBasic(body: LinearLayout, entryOrders: List<PaperOrderEntity>, reentries: List<PaperReentryPlanEntity>, prices: Map<String, Ticker>, priceState: String) {
         var any = false
         for (o in entryOrders.sortedByDescending { it.createdAt }) {
-            any = true; addSpace(box, 10)
-            val label = when {
-                o.clientOrderId.contains("-avg-") -> "Averaging LIMIT (pending)"
-                o.clientOrderId.contains("-initial-") -> "Initial LIMIT (pending)"
-                else -> "Entry LIMIT (pending)"
+            any = true
+            val box = makeItemCard(body)
+            val tag = when {
+                o.clientOrderId.contains("-avg-") || o.clientOrderId.startsWith("avg-") -> "Averaging"
+                o.clientOrderId.contains("-initial-") || o.clientOrderId.startsWith("init-") -> "Initial"
+                o.clientOrderId.contains("opp") -> "Opposite"
+                else -> "Entry"
             }
             val header = row()
-            header.addView(text("${o.symbol} ${o.direction}", 14f, if (o.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
-            header.addView(text("BASIC", 11f, yellow, true)); box.addView(header)
-            addLabel(box, "Type", "$label — ${o.status}", white, true)
-            addLabel(box, "LIMIT Price", PriceFormatter.formatPrice(o.triggerPrice), white, true)
-            addLabel(box, "Cycle / Entry", "#${o.cycleId}" + (o.entryId?.let { " / entry #$it" } ?: ""))
-            addLabel(box, "Created", tf.format(java.util.Date(o.createdAt)))
-            addLabel(box, "Note", "LIMIT entry order. Waiting for execution at specified price.", muted)
+            header.addView(text("${o.symbol} ${o.direction}", 15f, if (o.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(text(tag, 12f, yellow, true)); box.addView(header)
+            addLabel(box, "Order Price", PriceFormatter.formatPrice(o.triggerPrice), white, true)
+            addLabel(box, "Current Price", currentPriceText(prices, o.symbol, priceState), white, true)
         }
         for (r in reentries.sortedByDescending { it.createdAt }) {
-            if (r.status in listOf("EXECUTED","CANCELLED","FAILED")) continue
-            any = true; addSpace(box, 10)
-            box.addView(text("RE-ENTRY — ${r.symbol} ${r.direction}", 14f, yellow, true))
-            addLabel(box, "Status", r.status, white, true)
-            addLabel(box, "LIMIT/Trigger Price", PriceFormatter.formatPrice(r.triggerPrice), white, true)
-            addLabel(box, "Source Cycle", "#${r.sourceCycleId}")
-            addLabel(box, "Created", tf.format(java.util.Date(r.createdAt)))
-            val note = when (r.status) {
-                "WAITING" -> "Pending re-entry (waiting for pullback). Will place LIMIT and remain in Basic until filled/cancelled."
-                "TRIGGERED","ORDER_PLACED" -> "Re-entry LIMIT placed. Waiting for fill or cancellation."
-                else -> "Re-entry state: ${r.status}"
-            }
-            addLabel(box, "Note", note, muted)
+            any = true
+            val box = makeItemCard(body)
+            val header = row()
+            header.addView(text("${r.symbol} ${r.direction}", 15f, if (r.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(text("Re-entry", 12f, yellow, true)); box.addView(header)
+            addLabel(box, "Order Price", PriceFormatter.formatPrice(r.triggerPrice), white, true)
+            addLabel(box, "Current Price", currentPriceText(prices, r.symbol, priceState), white, true)
         }
-        if (!any) { addSpace(box, 6); box.addView(text("No Basic open orders.", 13f, muted)) }
+        if (!any) body.addView(text("No open orders.", 13f, muted))
     }
 
-    private fun renderOrdersConditional(body: LinearLayout, protectiveOrders: List<PaperOrderEntity>, conditionalOpposites: List<PaperCycleEntity>, allCycles: List<PaperCycleEntity>, dao: com.ansardeo.binancebot.paper.db.PaperDao, sid: String) {
-        val box = addCard(body, "OPEN ORDER — CONDITIONAL", "Linked TP/SL protection groups and pending opposite-side triggers")
+    private fun renderOrdersConditional(body: LinearLayout, protectiveOrders: List<PaperOrderEntity>, conditionalOpposites: List<PaperCycleEntity>, cycleById: Map<Long, PaperCycleEntity>, prices: Map<String, Ticker>, priceState: String) {
         var any = false
         val byCycle = protectiveOrders.groupBy { it.cycleId }
         for ((cycleId, orders) in byCycle.toSortedMap()) {
-            any = true; addSpace(box, 10)
-            val cycle = allCycles.find { it.id == cycleId }
+            any = true
+            val cycle = cycleById[cycleId]
             val sym = cycle?.symbol ?: orders.firstOrNull()?.symbol ?: "--"
-            val dir = cycle?.direction ?: orders.firstOrNull()?.direction ?: "--"
-            box.addView(text("$sym $dir — Cycle #$cycleId (TP/SL Group)", 14f, yellow, true))
-            addLabel(box, "Protection", "Linked cycle TP + independent per-entry SLs (exchange-side orders may be separate).", muted)
             val tp = orders.firstOrNull { it.orderType == "CYCLE_TP" }
-            if (tp != null) addLabel(box, "Cycle Take Profit", "${PriceFormatter.formatPrice(tp.triggerPrice)} | qty ${PriceFormatter.formatQty(tp.quantity)} | ${tp.status}", green, true)
-            else addLabel(box, "Cycle Take Profit", "--", muted)
-            val sls = orders.filter { it.orderType == "ENTRY_SL" }.sortedBy { it.entryId }
-            if (sls.isEmpty()) addLabel(box, "Entry Stop Losses", "None active", muted)
-            for (sl in sls) {
-                addLabel(box, "Entry SL (fixed)", "Entry #${sl.entryId ?: "?"} @ ${PriceFormatter.formatPrice(sl.triggerPrice)} | qty ${PriceFormatter.formatQty(sl.quantity)} | ${sl.status}", red)
+            // show cycle-level TP and a representative SL price per card context; margin is cycle initial+avg context - use cycle margins
+            val sls = orders.filter { it.orderType == "ENTRY_SL" }
+            val marginAmt = if (cycle != null) {
+                // total margin for open executed entries approximated by initial+averaging when applicable
+                cycle.initialMargin + if (cycle.averagingDone) cycle.averagingMargin else 0.0
+            } else 0.0
+            val box = makeItemCard(body)
+            val header = row()
+            header.addView(text("$sym ${cycle?.direction ?: ""}".trim(), 15f, if (cycle?.direction == "SHORT") red else green, true), LinearLayout.LayoutParams(0, -2, 1f))
+            box.addView(header)
+            addLabel(box, "Margin Amount", PriceFormatter.formatUsdt(marginAmt), white, true)
+            addLabel(box, "Current Price", currentPriceText(prices, sym, priceState), white, true)
+            addLabel(box, "TP Trigger Price", PriceFormatter.formatPrice(tp?.triggerPrice ?: cycle?.takeProfitPrice), green, true)
+            // If multiple independent SLs exist, show each as its own separate card per-entry context while keeping only 4 fields
+            if (sls.isEmpty()) {
+                addLabel(box, "SL Order Price", "--", red, true)
+            } else if (sls.size == 1) {
+                addLabel(box, "SL Order Price", PriceFormatter.formatPrice(sls.first().triggerPrice), red, true)
+            } else {
+                // first in this card, rest as separate cards (each must be separate clean card per requirement intent)
+                addLabel(box, "SL Order Price", PriceFormatter.formatPrice(sls.first().triggerPrice), red, true)
+                for (sl in sls.drop(1)) {
+                    val c2 = makeItemCard(body)
+                    val h2 = row(); h2.addView(text("$sym ${cycle?.direction ?: ""}".trim(), 15f, if (cycle?.direction == "SHORT") red else green, true), LinearLayout.LayoutParams(0,-2,1f)); c2.addView(h2)
+                    val entryMargin = cycle?.initialMargin ?: marginAmt
+                    addLabel(c2, "Margin Amount", PriceFormatter.formatUsdt(entryMargin), white, true)
+                    addLabel(c2, "Current Price", currentPriceText(prices, sym, priceState), white, true)
+                    addLabel(c2, "TP Trigger Price", PriceFormatter.formatPrice(tp?.triggerPrice ?: cycle?.takeProfitPrice), green, true)
+                    addLabel(c2, "SL Order Price", PriceFormatter.formatPrice(sl.triggerPrice), red, true)
+                }
             }
-            addLabel(box, "Rule", "Individual SL closes only that entry's qty. Cycle TP closes remaining qty and cancels/verifies remaining SLs. Linked alternative cancelled on execution as applicable.", muted)
         }
         // Conditional opposite-side triggers (awaiting averaging execution)
         for (c in conditionalOpposites) {
-            any = true; addSpace(box, 10)
+            any = true
+            val box = makeItemCard(body)
             val oppositeDir = if (c.direction == "LONG") "SHORT" else "LONG"
-            box.addView(text("${c.symbol} $oppositeDir — Conditional Opposite (Cycle #${c.id})", 14f, yellow, true))
-            addLabel(box, "Status", "Waiting for averaging order to execute", muted)
-            addLabel(box, "Trigger", "On averaging fill (opposite LIMIT at actual averaging fill price)", white, true)
-            addLabel(box, "Margin", "${PriceFormatter.formatUsdt(c.averagingMargin)} (equal margin)", white)
-            addLabel(box, "Note", "Once the averaging order executes, this opposite-side LIMIT entry will be created and moved to Basic, ready for execution.", muted)
+            val header = row()
+            header.addView(text("${c.symbol} $oppositeDir", 15f, if (oppositeDir == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(text("Conditional", 12f, yellow, true)); box.addView(header)
+            addLabel(box, "Margin Amount", PriceFormatter.formatUsdt(c.averagingMargin), white, true)
+            addLabel(box, "Current Price", currentPriceText(prices, c.symbol, priceState), white, true)
+            // pending trigger; TP/SL prices not yet applicable
+            addLabel(box, "TP Trigger Price", "--", green, true)
+            addLabel(box, "SL Order Price", "--", red, true)
         }
-        if (!any) { addSpace(box, 6); box.addView(text("No Conditional orders.", 13f, muted)) }
+        if (!any) body.addView(text("No conditional orders.", 13f, muted))
     }
 
     private fun renderHistoryPrimary(body: LinearLayout, history: List<PaperHistoryCloseEntity>) {
-        val box = addCard(body, "HISTORY", "Persistent per-entry close records (TP/SL/Liquidation). No merged cycles/entries.")
-        if (history.isEmpty()) { addSpace(box, 6); box.addView(text("No history records yet.", 13f, muted)); return }
-        val tf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        if (history.isEmpty()) { body.addView(text("No history.", 13f, muted)); return }
+        val tf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         for (h in history) {
-            addSpace(box, 10)
+            val box = makeItemCard(body)
             val header = row()
-            header.addView(text("${h.symbol} ${h.direction} — ${h.closingReason}", 14f, when (h.closingReason) { "TP" -> green; "SL","LIQUIDATION" -> red; else -> white }, true), LinearLayout.LayoutParams(0, -2, 1f))
-            header.addView(text("Cycle #${h.cycleId}", 11f, muted, true)); box.addView(header)
-            addLabel(box, "Actual entry fill", PriceFormatter.formatPrice(h.entryFillPrice), white, true)
-            addLabel(box, "Actual exit fill", PriceFormatter.formatPrice(h.exitFillPrice), white, true)
-            addLabel(box, "Entry margin / Leverage", "${PriceFormatter.formatUsdt(h.entryMargin)} / ${h.leverage}x")
-            addLabel(box, "Closed quantity", PriceFormatter.formatQty(h.closedQuantity))
+            header.addView(text("${h.symbol} ${h.direction}", 15f, if (h.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(text(h.closingReason, 12f, when (h.closingReason) { "TP" -> green; "SL","LIQUIDATION" -> red; else -> white }, true))
+            box.addView(header)
+            addLabel(box, "Entry", PriceFormatter.formatPrice(h.entryFillPrice), white, true)
+            addLabel(box, "Exit", PriceFormatter.formatPrice(h.exitFillPrice), white, true)
+            addLabel(box, "Qty", PriceFormatter.formatQty(h.closedQuantity))
+            addLabel(box, "Margin / Lev", "${PriceFormatter.formatUsdt(h.entryMargin)} / ${h.leverage}x")
             addLabel(box, "Realized PNL", "${PriceFormatter.formatPnl(h.realizedPnlUsdt)} (${PriceFormatter.formatPercent(h.realizedPnlPercent)})", pnlColor(h.realizedPnlUsdt), true)
-            addLabel(box, "Entry time", tf.format(java.util.Date(h.entryTimestamp)))
-            addLabel(box, "Exit time", tf.format(java.util.Date(h.exitTimestamp)))
-            addLabel(box, "Entry ID", "#${h.entryId}")
+            addLabel(box, "Entry", tf.format(java.util.Date(h.entryTimestamp)))
+            addLabel(box, "Exit", tf.format(java.util.Date(h.exitTimestamp)))
         }
     }
 
@@ -711,7 +752,7 @@ class MainActivity : AppCompatActivity() {
     private fun settingsPage() {
         val root = pageContainer()
         root.addView(text("Settings", 23f, white, true))
-        root.addView(text("Default settings (applied to trading). TP/SL/Averaging/Re-entry percentages are auto-selected from the fixed leverage table (3x–20x) and are not editable.", 12f, muted))
+        root.addView(text("Default settings (applied to trading). TP/SL/Averaging/Re-entry percentages are auto-selected from the fixed leverage table (3xâ€“20x) and are not editable.", 12f, muted))
         val st = addCard(root, "ACTIVE STAGE", "Current: ${stage().title}")
         addActionButton(st, "CHANGE STAGE") {
             val opts = TradingStage.entries.map { it.title }.toTypedArray()
@@ -734,7 +775,7 @@ class MainActivity : AppCompatActivity() {
         val marginEt = et("Initial Margin (USDT)", String.format(Locale.US, "%.4f", s.marginAmount).trimEnd('0').trimEnd('.'))
         val avgMarginEt = et("Averaging Margin (USDT)", String.format(Locale.US, "%.4f", s.averagingMargin).trimEnd('0').trimEnd('.'))
         val oppMarginEt = et("Opposite-side Margin (USDT)", String.format(Locale.US, "%.4f", s.oppositeMargin).trimEnd('0').trimEnd('.'))
-        sc.addView(text("Leverage (3x–20x)", 12f, muted, true))
+        sc.addView(text("Leverage (3xâ€“20x)", 12f, muted, true))
         val levSpin = Spinner(this).apply { adapter = createDarkSpinnerAdapter(LeverageConfig.SUPPORTED_LEVERAGES.map { "${it}x" }); setPopupBackgroundDrawable(rounded(inputBg, 10)); setBackgroundColor(inputBg); setSelection(LeverageConfig.SUPPORTED_LEVERAGES.indexOf(s.leverage).coerceAtLeast(0)) }
         sc.addView(levSpin, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
         val info = text("", 12f, yellow); sc.addView(info)
@@ -767,20 +808,20 @@ class MainActivity : AppCompatActivity() {
         TradingStage.entries.forEach { stg ->
             val active = stage() == stg
             val desc = when (stg) {
-                TradingStage.STAGE_1 -> "Live USDⓈ-M prices + virtual 100 USDT. Simulated execution only."
+                TradingStage.STAGE_1 -> "Live USDâ“ˆ-M prices + virtual 100 USDT. Simulated execution only."
                 TradingStage.STAGE_2 -> "Demo trading with simulated wallet/orders/positions/history. No real funds."
-                TradingStage.STAGE_3 -> "Live Binance USDⓈ-M (scaffold). Disabled by default. This build does not submit real orders."
+                TradingStage.STAGE_3 -> "Live Binance USDâ“ˆ-M (scaffold). Disabled by default. This build does not submit real orders."
             }
             addSpace(phases, 6)
-            phases.addView(text("${stg.title}${if (active) " — ACTIVE" else ""}", 13f, if (active && stg!=TradingStage.STAGE_3) green else if (active) red else muted, true))
+            phases.addView(text("${stg.title}${if (active) " â€” ACTIVE" else ""}", 13f, if (active && stg!=TradingStage.STAGE_3) green else if (active) red else muted, true))
             phases.addView(text(desc, 11f, muted))
         }
         val info = addCard(root, "SYSTEM INFORMATION")
-        addLabel(info, "Application", "BAB — Binance Android Bot")
+        addLabel(info, "Application", "BAB â€” Binance Android Bot")
         addLabel(info, "Version", BuildConfig.VERSION_NAME)
         addLabel(info, "Stage 1/2 Orders", "SIMULATED ONLY (no real Binance orders)", green)
         addLabel(info, "Stage 3 Live", "DISABLED BY DEFAULT", red)
-        addLabel(info, "Market Data", "Binance public USDⓈ-M endpoints (read-only)", muted)
+        addLabel(info, "Market Data", "Binance public USDâ“ˆ-M endpoints (read-only)", muted)
 
         val s = stage()
         if (s != TradingStage.STAGE_3) {
