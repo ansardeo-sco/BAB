@@ -78,6 +78,20 @@ class MainActivity : AppCompatActivity() {
             findViewById(R.id.navSettings),
             findViewById(R.id.navMore)
         )
+        navIcons = listOf(
+            findViewById(R.id.navDashboardIcon),
+            findViewById(R.id.navManualIcon),
+            findViewById(R.id.navPositionsIcon),
+            findViewById(R.id.navSettingsIcon),
+            findViewById(R.id.navMoreIcon)
+        )
+        navLabels = listOf(
+            findViewById(R.id.navDashboardLabel),
+            findViewById(R.id.navManualLabel),
+            findViewById(R.id.navPositionsLabel),
+            findViewById(R.id.navSettingsLabel),
+            findViewById(R.id.navMoreLabel)
+        )
         navItems[0].setOnClickListener { showPage("Home") }
         navItems[1].setOnClickListener { showPage("Trade") }
         navItems[2].setOnClickListener { showPage("Future") }
