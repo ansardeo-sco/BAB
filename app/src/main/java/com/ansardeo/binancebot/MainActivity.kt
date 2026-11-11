@@ -421,9 +421,9 @@ class MainActivity : AppCompatActivity() {
             val profile = LeverageConfig.requireProfile(lev)
             val intended = entryPriceInput.text.toString().toDoubleOrNull()
             val qty = if (intended != null && intended > 0 && margin > 0) (margin * lev) / intended else null
-            val tpLong = if (intended != null && intended > 0) intended * (1 + profile.tpPercent/100.0) else null
+            val tsLong = if (intended != null && intended > 0) intended * (1 + profile.trailingActivationPercent/100.0) else null
             val slLong = if (intended != null && intended > 0) intended * (1 - profile.slPercent/100.0) else null
-            val tpShort = if (intended != null && intended > 0) intended * (1 - profile.tpPercent/100.0) else null
+            val tsShort = if (intended != null && intended > 0) intended * (1 - profile.trailingActivationPercent/100.0) else null
             val slShort = if (intended != null && intended > 0) intended * (1 + profile.slPercent/100.0) else null
             summaryBox.removeAllViews()
             addSummaryRow("Stage", stage().title, if (stage()==TradingStage.STAGE_3) red else green)
@@ -431,11 +431,11 @@ class MainActivity : AppCompatActivity() {
             addSummaryRow("Live Price", "${PriceFormatter.formatPrice(currentLivePrice)} USDT")
             addSummaryRow("Intended LIMIT Entry", "${PriceFormatter.formatPrice(intended)} USDT")
             addSummaryRow("Margin", "${PriceFormatter.formatUsdt(margin)} / ${lev}x")
-            addSummaryRow("Fixed % (TP / SL)", "${profile.tpPercent}% / ${profile.slPercent}%")
-            addSummaryRow("Fixed % (Avg / Re-entry)", "${profile.averagingPercent}% / ${profile.reentryPullbackPercent}%")
+            addSummaryRow("Fixed % (TS act / cb)", "${profile.trailingActivationPercent}% / ${profile.callbackRatePercent}%")
+            addSummaryRow("Fixed % (SL / New Entry Dist)", "${profile.slPercent}% / ${profile.newEntryDistancePercent}%")
             addSummaryRow("Estimated Qty", if (qty != null) PriceFormatter.formatQty(qty) else "--")
-            addSummaryRow("Long TP / SL", "${PriceFormatter.formatPrice(tpLong)} / ${PriceFormatter.formatPrice(slLong)}", green)
-            addSummaryRow("Short TP / SL", "${PriceFormatter.formatPrice(tpShort)} / ${PriceFormatter.formatPrice(slShort)}", red)
+            addSummaryRow("Long TS act / SL", "${PriceFormatter.formatPrice(tsLong)} / ${PriceFormatter.formatPrice(slLong)}", green)
+            addSummaryRow("Short TS act / SL", "${PriceFormatter.formatPrice(tsShort)} / ${PriceFormatter.formatPrice(slShort)}", red)
             val note = text("All entries are LIMIT orders. Stage 1/2 simulated only. No MARKET orders.", 11f, muted)
             summaryBox.addView(note)
         }
@@ -682,7 +682,7 @@ class MainActivity : AppCompatActivity() {
                 addLabel(box, "Current Price", currentPriceText(prices, c.symbol, priceState), white, true)
                 addLabel(box, "Entry Price", PriceFormatter.formatPrice(entryPrice), white, true)
                 addLabel(box, "Margin", PriceFormatter.formatUsdt(entryMargin), white, true)
-                addLabel(box, "Cycle TP", PriceFormatter.formatPrice(c.takeProfitPrice), white, true)
+                addLabel(box, "Trailing Stop", if (c.averageEntryPrice != null) "avg ${PriceFormatter.formatPrice(c.averageEntryPrice)} (act ${c.trailingActivationPercent}%, cb ${c.callbackRatePercent}%)" else "--", white, true)
                 addLabel(box, "Entry SL", PriceFormatter.formatPrice(e.slPrice), white, true)
                 addLabel(box, "ROI", PriceFormatter.formatPercent(roi), pnlColor(roi), true)
                 addLabel(box, "Unrealized PNL", PriceFormatter.formatPnl(unreal), pnlColor(unreal), true)
@@ -743,7 +743,7 @@ class MainActivity : AppCompatActivity() {
             any = true
             val cycle = cycleById[cycleId]
             val sym = cycle?.symbol ?: orders.firstOrNull()?.symbol ?: "--"
-            val tp = orders.firstOrNull { it.orderType == "CYCLE_TP" }
+            val tp = orders.firstOrNull { it.orderType == "CYCLE_TP" } // none in trailing-stop model
             // show cycle-level TP and a representative SL price per card context; margin is cycle initial+avg context - use cycle margins
             val sls = orders.filter { it.orderType == "ENTRY_SL" }
             val marginAmt = if (cycle != null) {
@@ -756,7 +756,7 @@ class MainActivity : AppCompatActivity() {
             box.addView(header)
             addLabel(box, "Margin Amount", PriceFormatter.formatUsdt(marginAmt), white, true)
             addLabel(box, "Current Price", currentPriceText(prices, sym, priceState), white, true)
-            addLabel(box, "TP Trigger Price", PriceFormatter.formatPrice(tp?.triggerPrice ?: cycle?.takeProfitPrice), green, true)
+            addLabel(box, "Trailing Stop", if (cycle?.averageEntryPrice != null) "avg ${PriceFormatter.formatPrice(cycle.averageEntryPrice)} (act ${cycle.trailingActivationPercent}%, cb ${cycle.callbackRatePercent}%)" else "--", green, true)
             // If multiple independent SLs exist, show each as its own separate card per-entry context while keeping only 4 fields
             if (sls.isEmpty()) {
                 addLabel(box, "SL Order Price", "--", red, true)
@@ -771,7 +771,7 @@ class MainActivity : AppCompatActivity() {
                     val entryMargin = cycle?.initialMargin ?: marginAmt
                     addLabel(c2, "Margin Amount", PriceFormatter.formatUsdt(entryMargin), white, true)
                     addLabel(c2, "Current Price", currentPriceText(prices, sym, priceState), white, true)
-                    addLabel(c2, "TP Trigger Price", PriceFormatter.formatPrice(tp?.triggerPrice ?: cycle?.takeProfitPrice), green, true)
+                    addLabel(c2, "Trailing Stop", if (cycle?.averageEntryPrice != null) "avg ${PriceFormatter.formatPrice(cycle.averageEntryPrice)} (act ${cycle.trailingActivationPercent}%, cb ${cycle.callbackRatePercent}%)" else "--", green, true)
                     addLabel(c2, "SL Order Price", PriceFormatter.formatPrice(sl.triggerPrice), red, true)
                 }
             }
@@ -849,7 +849,7 @@ class MainActivity : AppCompatActivity() {
         fun updateInfo() {
             val lev = LeverageConfig.SUPPORTED_LEVERAGES.getOrElse(levSpin.selectedItemPosition) { 6 }
             val p = LeverageConfig.requireProfile(lev)
-            info.text = "Auto (read-only): TP ${p.tpPercent}% | SL ${p.slPercent}% | Averaging ${p.averagingPercent}% | Re-entry pullback ${p.reentryPullbackPercent}%"
+            info.text = "Auto (read-only): TS act ${p.trailingActivationPercent}% | cb ${p.callbackRatePercent}% | SL ${p.slPercent}% | New entry dist ${p.newEntryDistancePercent}%"
         }
         levSpin.onItemSelectedListener = object : AdapterView.OnItemSelectedListener { override fun onItemSelected(p0: AdapterView<*>?, v: View?, pos: Int, id: Long) { updateInfo() }; override fun onNothingSelected(p0: AdapterView<*>?) {} }
         updateInfo()

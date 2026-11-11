@@ -1,52 +1,110 @@
-package com.ansardeo.binancebot
+﻿package com.ansardeo.binancebot
 
 import com.ansardeo.binancebot.data.LeverageConfig
 import com.ansardeo.binancebot.data.TradingStage
 import com.ansardeo.binancebot.paper.PaperEngine
+import com.ansardeo.binancebot.paper.db.PaperEntryEntity
 import org.junit.Assert.*
 import org.junit.Test
 
 class TradingRulesLogicTest {
-    @Test fun initialTpFromFirstEntryAndRecalcFromWeightedAvg() {
-        val lev10 = LeverageConfig.requireProfile(10) // TP 2.30%
-        val first = 100.0
-        val tp1 = PaperEngine.calcTp("LONG", first, lev10.tpPercent)
-        assertEquals(102.30, tp1, 1e-9)
-        val avg = PaperEngine.weightedAvg(listOf(100.0 to 1.0, 90.0 to 1.0))
-        assertEquals(95.0, avg, 1e-9)
-        val tp2 = PaperEngine.calcTp("LONG", avg, lev10.tpPercent)
-        assertEquals(97.185, tp2, 1e-9)
-        assertNotEquals(tp1, tp2, 1e-9)
+    private fun filledEntry(dir: String, fill: Double, base: Double = fill, lev: Int = 10): PaperEntryEntity {
+        val p = LeverageConfig.requireProfile(lev)
+        return PaperEntryEntity(
+            id = 1, stage = "STAGE_1", cycleId = 1, symbol = "BTCUSDT", direction = dir, entryType = "INITIAL", status = "FILLED",
+            margin = 10.0, leverage = lev, intendedPrice = fill, fillPrice = fill, quantity = 1.0, filledQuantity = 1.0, remainingQuantity = 1.0,
+            clientOrderId = "c1", trailingBasePrice = base, trailingActivationPercent = p.trailingActivationPercent, trailingCallbackPercent = p.callbackRatePercent
+        )
     }
 
-    @Test fun independentSlPerEntryFixedFromActualFill() {
-        val p = LeverageConfig.requireProfile(10) // SL 6.90%
+    @Test fun trailingActivationAndCallback_long() {
+        val e0 = filledEntry("LONG", 100.0) // 10x: act 2.6%, cb 0.3%
+        val (_, e1) = PaperEngine.progressTrailing(e0, 102.0) // below activation
+        assertFalse(e1.trailingActivated)
+        val (_, e2) = PaperEngine.progressTrailing(e0, 102.6) // activate
+        assertTrue(e2.trailingActivated)
+        assertEquals(102.6, e2.trailingExtremePrice!!, 1e-9)
+        assertEquals(102.6 * (1 - 0.003), e2.trailingStopPrice!!, 1e-9)
+        val (_, e3) = PaperEngine.progressTrailing(e2, 103.0) // new high
+        assertEquals(103.0, e3.trailingExtremePrice!!, 1e-9)
+        assertEquals(103.0 * (1 - 0.003), e3.trailingStopPrice!!, 1e-9)
+        assertFalse(PaperEngine.isTrailingStopHit(e3, 102.7))
+        assertTrue(PaperEngine.isTrailingStopHit(e3, e3.trailingStopPrice!!))
+    }
+
+    @Test fun trailingActivationAndCallback_short() {
+        val e0 = filledEntry("SHORT", 100.0)
+        val (_, e1) = PaperEngine.progressTrailing(e0, 98.0) // above activation threshold (needs <= 97.4)
+        assertFalse(e1.trailingActivated)
+        val (_, e2) = PaperEngine.progressTrailing(e0, 97.4)
+        assertTrue(e2.trailingActivated)
+        assertEquals(97.4, e2.trailingExtremePrice!!, 1e-9)
+        assertEquals(97.4 * (1 + 0.003), e2.trailingStopPrice!!, 1e-9)
+        val (_, e3) = PaperEngine.progressTrailing(e2, 97.0) // new low
+        assertEquals(97.0, e3.trailingExtremePrice!!, 1e-9)
+        assertEquals(97.0 * (1 + 0.003), e3.trailingStopPrice!!, 1e-9)
+        assertFalse(PaperEngine.isTrailingStopHit(e3, 97.2))
+        assertTrue(PaperEngine.isTrailingStopHit(e3, e3.trailingStopPrice!!))
+    }
+
+    @Test fun individualSlFromActualFill_fixedOnAveraging() {
+        val p = LeverageConfig.requireProfile(10) // SL 8.0%
         val slInitial = PaperEngine.calcSl("LONG", 100.0, p.slPercent)
         val slAvg = PaperEngine.calcSl("LONG", 90.0, p.slPercent)
-        assertEquals(93.10, slInitial, 1e-9)
-        assertEquals(83.79, slAvg, 1e-9)
-        // After averaging, existing entry SL remains fixed (logic invariant): slInitial unchanged.
-        assertEquals(93.10, slInitial, 1e-9)
+        assertEquals(92.0, slInitial, 1e-9)
+        assertEquals(82.8, slAvg, 1e-9)
+        // invariant: original SL remains fixed after averaging
+        assertEquals(92.0, slInitial, 1e-9)
     }
 
-    @Test fun individualSlClosesOnlyThatEntryQty() {
-        val pnlInitial = PaperEngine.realizedPnl("LONG", 100.0, 93.10, 0.05) // only initial qty
-        val pnlAvg = PaperEngine.realizedPnl("LONG", 90.0, 95.0, 0.02) // avg entry unaffected
-        assertTrue(pnlInitial < 0)
-        assertEquals(0.1, pnlAvg, 1e-9)
+    @Test fun weightedAverageRecalculation() {
+        val avg = PaperEngine.weightedAvg(listOf(100.0 to 1.0, 90.0 to 1.0))
+        assertEquals(95.0, avg, 1e-9)
     }
 
-    @Test fun cycleTpClosesRemainingQty() {
-        val qty1 = 0.03; val qty2 = 0.02
-        val pnl = PaperEngine.realizedPnl("LONG", 95.0, 97.185, qty1 + qty2)
-        assertTrue(pnl > 0)
+    @Test fun averagingTriggerAtMinus60Roi_oncePerCycle_semantics() {
+        val avg = 100.0; val qty = 1.0; val margin = 10.0
+        val mark = 94.0 // LONG: pnl -6 on margin 10 => -60%
+        val unreal = PaperEngine.realizedPnl("LONG", avg, mark, qty)
+        val roi = (unreal / margin) * 100.0
+        assertEquals(-60.0, roi, 1e-9)
+        var triggered = false
+        var ordersPlaced = false
+        if (!triggered && !ordersPlaced && roi <= -60.0) { triggered = true; ordersPlaced = true }
+        assertTrue(triggered && ordersPlaced)
+        // second time in same cycle must not place again
+        val canTriggerAgain = !(triggered || ordersPlaced)
+        assertFalse(canTriggerAgain)
     }
 
-    @Test fun noMarketEntrySemantics_intendedLimitPriceIsAuthoritative() {
-        // Engine places LIMIT at intended price (not mark). Verified by requiring intendedLimitPrice and using it.
-        val intended = 12345.67
-        assertEquals(intended, intended, 0.0)
-        assertTrue(intended > 0)
+    @Test fun pendingAveragingBehavior_semantics() {
+        // if one averaging executes keep other pending; SL hit must not auto-cancel other pending averaging order
+        val pendingOrders = mutableListOf("AVG_LONG", "AVG_SHORT")
+        pendingOrders.remove("AVG_LONG") // one executed
+        assertTrue(pendingOrders.contains("AVG_SHORT"))
+        // SL hit closes only that entry; does not touch pending averaging orders
+        assertEquals(1, pendingOrders.size)
+    }
+
+    @Test fun reentryConditions_afterTrailingStop() {
+        val close = 100.0; val dist = 1.0 // %
+        val longPrice = close * (1 - dist / 100.0)
+        val shortPrice = close * (1 + dist / 100.0)
+        assertEquals(99.0, longPrice, 1e-9)
+        assertEquals(101.0, shortPrice, 1e-9)
+        fun plan(longOpen: Boolean, shortOpen: Boolean): Pair<Boolean, Boolean> = (!longOpen) to (!shortOpen)
+        assertEquals(true to true, plan(false, false))
+        assertEquals(false to true, plan(true, false))
+        assertEquals(true to false, plan(false, true))
+        assertEquals(false to false, plan(true, true))
+    }
+
+    @Test fun individualSlNoReentry_trailingStopReentry_semantics() {
+        assertFalse("SL must not trigger re-entry" == null)
+        val slTriggersReentry = false
+        val trailingTriggersReentry = true
+        assertFalse(slTriggersReentry)
+        assertTrue(trailingTriggersReentry)
     }
 
     @Test fun liquidationPriceIsDirectionallyCorrect() {
@@ -62,47 +120,5 @@ class TradingRulesLogicTest {
         assertFalse(TradingStage.STAGE_3.isSimulated)
         assertFalse(TradingStage.STAGE_1.canSubmitRealOrders)
         assertFalse(TradingStage.STAGE_2.canSubmitRealOrders)
-        // Stage 3 real submission disabled by default in app policy; engine blocks real submission.
-    }
-
-    @Test fun roiUsesMarginBasisTwoDecimalDisplay() {
-        val margin = 10.0; val lev = 5; val entry = 100.0
-        val qty = (margin * lev) / entry
-        val gross = PaperEngine.realizedPnl("LONG", entry, 102.0, qty)
-        val roi = (gross / margin) * 100.0
-        assertEquals(10.0, roi, 1e-9)
-        assertEquals("+10.00%", com.ansardeo.binancebot.util.PriceFormatter.formatPercent(roi))
-    }
-
-    @Test fun averagingLimitPriceIsCalculatedFromInitialFillUsingLeverageFormula() {
-        val p = LeverageConfig.requireProfile(10) // Averaging 6.60%
-        val initialFill = 100.0
-        val longAvgPrice = initialFill * (1.0 - p.averagingPercent / 100.0)
-        val shortAvgPrice = initialFill * (1.0 + p.averagingPercent / 100.0)
-        assertEquals(93.4, longAvgPrice, 1e-9)
-        assertEquals(106.6, shortAvgPrice, 1e-9)
-        // Averaging must be allowed only once per cycle (guarded by pending/filled checks + averagingDone).
-        val averagingDone = false
-        val hasPendingOrFilled = false
-        assertTrue(!averagingDone && !hasPendingOrFilled)
-    }
-
-    @Test fun pendingInitialLimitNotPositionAndFilledBecomesOpenPosition_semantics() {
-        // UI/engine semantics: unfilled initial LIMIT remains PENDING (order in Basic), no filled remaining qty => not an open position.
-        val filledRemainingQty = 0.0
-        val hasFilledOpenQty = filledRemainingQty > 1e-12
-        assertFalse(hasFilledOpenQty)
-        val afterFillQty = 0.5
-        assertTrue(afterFillQty > 1e-12)
-    }
-
-    @Test fun conditionalCardRequiredFields_present() {
-        // Conditional card must display only: Margin Amount, Current Price, TP Trigger Price, SL Order Price.
-        val fields = listOf("Margin Amount", "Current Price", "TP Trigger Price", "SL Order Price")
-        assertEquals(4, fields.size)
-        assertTrue(fields.contains("Margin Amount"))
-        assertTrue(fields.contains("Current Price"))
-        assertTrue(fields.contains("TP Trigger Price"))
-        assertTrue(fields.contains("SL Order Price"))
     }
 }

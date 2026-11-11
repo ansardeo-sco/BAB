@@ -1,4 +1,4 @@
-package com.ansardeo.binancebot.paper.db
+﻿package com.ansardeo.binancebot.paper.db
 
 import androidx.room.*
 
@@ -72,8 +72,8 @@ interface PaperDao {
     @Query("SELECT * FROM trading_orders WHERE cycleId = :cycleId AND entryId = :entryId AND orderType = 'ENTRY_SL' AND status IN ('ACTIVE','CANCELLING') LIMIT 1")
     suspend fun getActiveSlForEntry(cycleId: Long, entryId: Long): PaperOrderEntity?
 
-    @Query("SELECT * FROM trading_orders WHERE cycleId = :cycleId AND orderType = 'CYCLE_TP' AND status IN ('ACTIVE','CANCELLING') LIMIT 1")
-    suspend fun getActiveTpForCycle(cycleId: Long): PaperOrderEntity?
+    @Query("SELECT * FROM trading_orders WHERE cycleId = :cycleId AND entryId = :entryId AND orderType = 'ENTRY_TRAILING_STOP' AND status IN ('ACTIVE','CANCELLING') LIMIT 1")
+    suspend fun getActiveTrailingForEntry(cycleId: Long, entryId: Long): PaperOrderEntity?
 
     @Query("SELECT * FROM trading_orders WHERE cycleId = :cycleId AND orderType = 'ENTRY_SL' AND status IN ('ACTIVE','CANCELLING')")
     suspend fun getActiveSlOrdersForCycle(cycleId: Long): List<PaperOrderEntity>
@@ -95,6 +95,12 @@ interface PaperDao {
 
     @Query("SELECT COUNT(*) FROM trading_orders WHERE cycleId = :cycleId AND orderType = 'ENTRY_SL' AND status IN ('ACTIVE','CANCELLING')")
     suspend fun countUnverifiedActiveSlForCycle(cycleId: Long): Int
+
+    @Query("UPDATE trading_orders SET status = 'CANCEL_VERIFIED', cancelVerifiedAt = :now, updatedAt = :now, lastError = NULL WHERE id = :orderId AND status IN ('ACTIVE','CANCELLING','CANCELLED')")
+    suspend fun verifyCancelOrder(orderId: Long, now: Long)
+
+    @Query("UPDATE trading_orders SET status = 'CANCEL_VERIFIED', cancelVerifiedAt = :now, updatedAt = :now, lastError = NULL WHERE stage = :stage AND symbol = :symbol AND orderType = 'ENTRY_LIMIT' AND status IN ('ACTIVE','CANCELLING')")
+    suspend fun cancelActiveEntryLimitsForSymbol(stage: String, symbol: String, now: Long)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertHistoryClose(history: PaperHistoryCloseEntity): Long

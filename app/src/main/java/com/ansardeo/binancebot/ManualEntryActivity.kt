@@ -99,9 +99,9 @@ class ManualEntryActivity : AppCompatActivity() {
             val p = LeverageConfig.requireProfile(lev())
             val intended = entryPriceInput.text.toString().toDoubleOrNull()
             val qty = if (intended != null && intended > 0 && margin > 0) (margin * lev()) / intended else null
-            val tpLong = if (intended != null && intended > 0) intended * (1 + p.tpPercent/100.0) else null
+            val actLong = if (intended != null && intended > 0) intended * (1 + p.trailingActivationPercent/100.0) else null
             val slLong = if (intended != null && intended > 0) intended * (1 - p.slPercent/100.0) else null
-            val tpShort = if (intended != null && intended > 0) intended * (1 - p.tpPercent/100.0) else null
+            val actShort = if (intended != null && intended > 0) intended * (1 - p.trailingActivationPercent/100.0) else null
             val slShort = if (intended != null && intended > 0) intended * (1 + p.slPercent/100.0) else null
             summaryBox.removeAllViews()
             addSummaryRow("Stage", stage().title, if (stage()==TradingStage.STAGE_3) red else green)
@@ -109,11 +109,11 @@ class ManualEntryActivity : AppCompatActivity() {
             addSummaryRow("Live Price", "${PriceFormatter.formatPrice(livePrice)} USDT")
             addSummaryRow("Intended LIMIT Entry", "${PriceFormatter.formatPrice(intended)} USDT")
             addSummaryRow("Margin", "${PriceFormatter.formatUsdt(margin)} / ${lev()}x")
-            addSummaryRow("Fixed % (TP / SL)", "${p.tpPercent}% / ${p.slPercent}%")
-            addSummaryRow("Fixed % (Avg / Re-entry)", "${p.averagingPercent}% / ${p.reentryPullbackPercent}%")
+            addSummaryRow("Fixed % (TS act / cb)", "${p.trailingActivationPercent}% / ${p.callbackRatePercent}%")
+            addSummaryRow("Fixed % (SL / New Entry Dist)", "${p.slPercent}% / ${p.newEntryDistancePercent}%")
             addSummaryRow("Estimated Qty", if (qty != null) PriceFormatter.formatQty(qty) else "--")
-            addSummaryRow("Long TP / SL", "${PriceFormatter.formatPrice(tpLong)} / ${PriceFormatter.formatPrice(slLong)}", green)
-            addSummaryRow("Short TP / SL", "${PriceFormatter.formatPrice(tpShort)} / ${PriceFormatter.formatPrice(slShort)}", red)
+            addSummaryRow("Long TS act / SL", "${PriceFormatter.formatPrice(actLong)} / ${PriceFormatter.formatPrice(slLong)}", green)
+            addSummaryRow("Short TS act / SL", "${PriceFormatter.formatPrice(actShort)} / ${PriceFormatter.formatPrice(slShort)}", red)
             summaryBox.addView(TextView(this).apply { text = "All entries are LIMIT orders. Stage 1/2 simulated only. No MARKET orders."; textSize = 11f; setTextColor(muted) })
         }
 

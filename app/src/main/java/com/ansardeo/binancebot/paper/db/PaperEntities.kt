@@ -1,4 +1,4 @@
-package com.ansardeo.binancebot.paper.db
+﻿package com.ansardeo.binancebot.paper.db
 
 import androidx.room.Entity
 import androidx.room.Index
@@ -29,26 +29,25 @@ data class PaperCycleEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val stage: String = "STAGE_1",
     val symbol: String,
-    val direction: String, // LONG / SHORT
+    val direction: String, // LONG / SHORT (for directed cycles) or MIXED context not used; entries track side
     val status: String, // PENDING_ENTRY, ACTIVE, CLOSING, CLOSED, ERROR, CANCELLED
     val leverage: Int,
     val initialMargin: Double,
     val averagingMargin: Double,
     val oppositeMargin: Double = 0.0,
-    val tpPercent: Double,
-    val slPercent: Double,
-    val averagingPercent: Double,
-    val reentryPercent: Double,
-    val averagingEnabled: Boolean,
-    val reentryEnabled: Boolean,
+    val trailingActivationPercent: Double = 0.0,
+    val callbackRatePercent: Double = 0.0,
+    val newEntryDistancePercent: Double = 0.0,
+    val slPercent: Double = 0.0,
+    val averagingEnabled: Boolean = true,
+    val reentryEnabled: Boolean = true,
     val oppositeEnabled: Boolean = false,
     val averageEntryPrice: Double? = null,
     val totalQuantity: Double = 0.0,
     val totalRemainingQuantity: Double = 0.0,
-    val takeProfitPrice: Double? = null,
-    val cycleTpOrderId: Long? = null,
+    val averagingTriggeredAtRoi: Boolean = false,
+    val averagingOrdersPlaced: Boolean = false,
     val averagingDone: Boolean = false,
-    val oppositeDone: Boolean = false,
     val closePrice: Double? = null,
     val realizedPnl: Double? = null,
     val closeReason: String? = null,
@@ -56,7 +55,7 @@ data class PaperCycleEntity(
     val updatedAt: Long = System.currentTimeMillis(),
     val closedAt: Long? = null,
     val sourceCycleId: Long? = null,
-    val sourceType: String? = null, // MANUAL, AVERAGING_OPPOSITE, REENTRY
+    val sourceType: String? = null, // MANUAL, REENTRY, etc.
     val lastProcessedMark: Double? = null,
     val lastError: String? = null,
 )
@@ -75,7 +74,7 @@ data class PaperEntryEntity(
     val cycleId: Long,
     val symbol: String,
     val direction: String, // LONG / SHORT
-    val entryType: String, // INITIAL, AVERAGING, OPPOSITE, REENTRY
+    val entryType: String, // INITIAL, AVERAGING, REENTRY
     val status: String, // PENDING, FILLED, CLOSED, CANCELLED, REJECTED
     val margin: Double,
     val leverage: Int,
@@ -87,7 +86,15 @@ data class PaperEntryEntity(
     val fee: Double = 0.0,
     val slPrice: Double? = null,
     val slOrderId: Long? = null,
-    val slFixed: Boolean = false,
+    val slFixed: Boolean = true,
+    // Trailing stop (per executed entry; after averaging on same side, replaced based on weighted avg)
+    val trailingBasePrice: Double? = null,
+    val trailingActivationPercent: Double = 0.0,
+    val trailingCallbackPercent: Double = 0.0,
+    val trailingActivated: Boolean = false,
+    val trailingExtremePrice: Double? = null, // highest for LONG, lowest for SHORT
+    val trailingStopPrice: Double? = null,
+    val trailingOrderId: Long? = null,
     val clientOrderId: String,
     val fillEventId: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
@@ -110,14 +117,14 @@ data class PaperOrderEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val stage: String = "STAGE_1",
     val cycleId: Long,
-    val entryId: Long? = null, // null for cycle-level TP
+    val entryId: Long? = null,
     val symbol: String,
     val direction: String,
-    val side: String, // BUY/SELL (execution side)
-    val orderType: String, // ENTRY_LIMIT, CYCLE_TP, ENTRY_SL
-    val triggerPrice: Double,
+    val side: String, // BUY/SELL
+    val orderType: String, // ENTRY_LIMIT, ENTRY_SL, ENTRY_TRAILING_STOP (simulated/internal)
+    val triggerPrice: Double = 0.0,
     val limitPrice: Double? = null,
-    val quantity: Double,
+    val quantity: Double = 0.0,
     val status: String, // ACTIVE, FILLED, CANCELLING, CANCELLED, CANCEL_VERIFIED, REJECTED, FAILED
     val clientOrderId: String,
     val exchangeOrderId: String? = null,
@@ -153,7 +160,7 @@ data class PaperHistoryCloseEntity(
     val closedQuantity: Double,
     val realizedPnlUsdt: Double,
     val realizedPnlPercent: Double,
-    val closingReason: String, // TP, SL, LIQUIDATION
+    val closingReason: String, // TRAILING_STOP, SL, LIQUIDATION
     val entryTimestamp: Long,
     val exitTimestamp: Long,
     val idempotencyKey: String,

@@ -1,11 +1,12 @@
-package com.ansardeo.binancebot.data
+﻿package com.ansardeo.binancebot.data
 
 import android.content.Context
 import org.json.JSONObject
 
 /**
- * Per-symbol BAB settings. Trading percentages (TP/SL/Averaging/Re-entry pullback) are
- * automatically derived from [leverage] via [LeverageConfig] and are NOT user-editable.
+ * Per-symbol/global BAB settings. Trailing stop, callback, new-entry distance and SL percentages
+ * are automatically derived from [leverage] via [LeverageConfig] and are NOT user-editable.
+ * Averaging trigger is fixed at -60% ROI (once per cycle) per spec.
  */
 data class LocalCoinSettings(
     val symbol: String,
@@ -27,10 +28,10 @@ data class LocalCoinSettings(
     }
 
     val profile: LeverageProfile get() = LeverageConfig.requireProfile(leverage)
-    val tpPercent: Double get() = profile.tpPercent
+    val trailingActivationPercent: Double get() = profile.trailingActivationPercent
+    val callbackRatePercent: Double get() = profile.callbackRatePercent
+    val newEntryDistancePercent: Double get() = profile.newEntryDistancePercent
     val slPercent: Double get() = profile.slPercent
-    val averagingPercent: Double get() = profile.averagingPercent
-    val reentryPercent: Double get() = profile.reentryPullbackPercent
 
     companion object {
         fun sanitized(
