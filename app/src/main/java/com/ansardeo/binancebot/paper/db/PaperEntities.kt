@@ -42,6 +42,7 @@ data class PaperCycleEntity(
     val averagingEnabled: Boolean = true,
     val reentryEnabled: Boolean = true,
     val oppositeEnabled: Boolean = false,
+    val oppositeDone: Boolean = false,
     val averageEntryPrice: Double? = null,
     val totalQuantity: Double = 0.0,
     val totalRemainingQuantity: Double = 0.0,

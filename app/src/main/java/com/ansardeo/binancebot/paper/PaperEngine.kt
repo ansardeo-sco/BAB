@@ -195,7 +195,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
             }
             dao.updateCycle((dao.getCycle(cycle.id) ?: cycle).copy(status = "ACTIVE", averageEntryPrice = avg,
                 totalQuantity = allEntries.filter { it.status == "FILLED" || it.status == "CLOSED" }.sumOf { it.filledQuantity },
-                totalRemainingQuantity = totalQty, averagingDone = true, updatedAt = now, lastError = null))
+                totalRemainingQuantity = totalQty, averagingDone = true, oppositeDone = true, updatedAt = now, lastError = null))
             dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "AVERAGING_FILLED",
                 message = "Averaging filled @ ${fmtPx(fillPrice)}. Weighted avg ${fmtPx(avg)}. Trailing stops replaced based on avg (act ${cycle.trailingActivationPercent}%, cb ${cycle.callbackRatePercent}%). Original SLs retained.",
                 price = fillPrice, dedupeKey = "avg-filled-${filledEntry.clientOrderId}"))
