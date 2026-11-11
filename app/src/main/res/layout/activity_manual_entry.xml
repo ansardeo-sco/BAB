@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg_primary"
@@ -181,7 +181,7 @@
             android:layout_marginTop="10dp"
             android:orientation="horizontal">
 
-            <Button
+            <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btnOpenLong"
                 android:layout_width="0dp"
                 android:layout_height="48dp"
@@ -191,13 +191,14 @@
                 android:text="Open Long"
                 android:textAllCaps="false"
                 android:textColor="@color/text_primary"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                app:backgroundTint="@null" />
 
             <Space
                 android:layout_width="10dp"
                 android:layout_height="1dp" />
 
-            <Button
+            <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btnOpenShort"
                 android:layout_width="0dp"
                 android:layout_height="48dp"
@@ -207,7 +208,8 @@
                 android:text="Open Short"
                 android:textAllCaps="false"
                 android:textColor="@color/text_primary"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                app:backgroundTint="@null" />
         </LinearLayout>
 
         <TextView
