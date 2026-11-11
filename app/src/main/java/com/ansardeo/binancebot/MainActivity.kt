@@ -156,7 +156,7 @@ class MainActivity : AppCompatActivity() {
     private fun addLabel(parent: LinearLayout, label: String, value: String, valueColor: Int = white, isPrice: Boolean = false) {
         val line = row().apply { layoutParams = LinearLayout.LayoutParams(-1, -2) }
         val labelTv = text(label, 12f, muted)
-        line.addView(labelTv, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(32) })
+        line.addView(labelTv, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(48) })
         val v = if (isPrice) priceTv(value, 13f, valueColor) else text(value, 13f, valueColor, true).apply {
             gravity = Gravity.END
             textAlignment = View.TEXT_ALIGNMENT_VIEW_END
