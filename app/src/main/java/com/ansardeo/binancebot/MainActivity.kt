@@ -1,4 +1,4 @@
-﻿package com.ansardeo.binancebot
+package com.ansardeo.binancebot
 
 import android.content.Context
 import android.content.Intent
@@ -53,7 +53,9 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var content: FrameLayout
     private lateinit var topStatus: TextView
-    private lateinit var navItems: List<TextView>
+    private lateinit var navItems: List<View>
+    private lateinit var navIcons: List<ImageView>
+    private lateinit var navLabels: List<TextView>
     private var currentPage = "Home"
     private var pendingTradeSymbol: String? = null
     private var pendingTradePrice: Double? = null
@@ -139,13 +141,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun addLabel(parent: LinearLayout, label: String, value: String, valueColor: Int = white, isPrice: Boolean = false) {
         val line = row()
-        line.addView(text(label, 12f, muted), LinearLayout.LayoutParams(0, -2, 1f))
+        val labelTv = text(label, 12f, muted)
+        line.addView(labelTv, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(16) })
         val v = if (isPrice) priceTv(value, 13f, valueColor) else text(value, 13f, valueColor, true)
         line.addView(v)
         parent.addView(line)
         addSpace(parent, 8)
     }
-
     private fun addCard(parent: LinearLayout, title: String, subtitle: String? = null): LinearLayout {
         val box = cardView()
         box.addView(text(title, 14f, yellow, true))
@@ -166,10 +168,12 @@ class MainActivity : AppCompatActivity() {
     private fun showPage(page: String) {
         currentPage = page
         if (page != "Home") stopRefresh()
-        navItems.forEachIndexed { i, item ->
+                navItems.forEachIndexed { i, _ ->
             val sel = (page == "Home" && i == 0) || (page == "Trade" && i == 1) || (page == "Future" && i == 2) || (page == "Settings" && i == 3) || (page == "More" && i == 4)
-            item.setTextColor(if (sel) yellow else muted)
-            item.setTypeface(null, if (sel) Typeface.BOLD else Typeface.NORMAL)
+            val c = if (sel) yellow else muted
+            navIcons[i].setColorFilter(c)
+            navLabels[i].setTextColor(c)
+            navLabels[i].setTypeface(null, if (sel) Typeface.BOLD else Typeface.NORMAL)
         }
         when (page) {
             "Home" -> dashboardPage()
@@ -602,26 +606,29 @@ class MainActivity : AppCompatActivity() {
             val openEntries = cwe.entries.filter { it.status == "FILLED" && it.remainingQuantity > 1e-12 }
             if (openEntries.isEmpty()) continue
             val px = prices[c.symbol]?.markPrice ?: prices[c.symbol]?.lastPrice
-            val qty = openEntries.sumOf { it.remainingQuantity }
-            val avg = c.averageEntryPrice ?: openEntries.firstOrNull()?.fillPrice
-            val margin = openEntries.sumOf { it.margin * (it.remainingQuantity / kotlin.math.max(it.filledQuantity, 1e-12)) }
-            val unreal = if (px != null && avg != null && qty > 1e-12) if (c.direction == "LONG") (px - avg) * qty else (avg - px) * qty else null
-            val roi = if (unreal != null && margin > 1e-12) (unreal / margin) * 100.0 else null
-            val box = makeItemCard(body)
-            val header = row().apply { isClickable = true; setOnClickListener { openDetail(c.symbol) } }
-            header.addView(text("${c.symbol}  ${c.direction}", 15f, if (c.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
-            header.addView(text("${c.leverage}x", 12f, muted, true)); box.addView(header)
-            addLabel(box, "Current Price", currentPriceText(prices, c.symbol, priceState), white, true)
-            addLabel(box, "Avg Entry", PriceFormatter.formatPrice(avg), white, true)
-            addLabel(box, "Remaining Qty", PriceFormatter.formatQty(qty))
-            addLabel(box, "Margin", PriceFormatter.formatUsdt(margin))
-            addLabel(box, "Unrealized PNL", PriceFormatter.formatPnl(unreal), pnlColor(unreal), true)
-            addLabel(box, "ROI", PriceFormatter.formatPercent(roi), pnlColor(roi), true)
-            addLabel(box, "Cycle TP", PriceFormatter.formatPrice(c.takeProfitPrice), green, true)
-            openEntries.forEach { e -> addLabel(box, "Entry SL", PriceFormatter.formatPrice(e.slPrice), red, true) }
+            for (e in openEntries) {
+                val entryPrice = e.fillPrice
+                val entryQty = e.remainingQuantity
+                val baseQty = kotlin.math.max(e.filledQuantity, 1e-12)
+                val entryMargin = e.margin * (entryQty / baseQty)
+                val unreal = if (px != null && entryPrice != null && entryQty > 1e-12) {
+                    if (c.direction == "LONG") (px - entryPrice) * entryQty else (entryPrice - px) * entryQty
+                } else null
+                val roi = if (unreal != null && entryMargin > 1e-12) (unreal / entryMargin) * 100.0 else null
+                val box = makeItemCard(body)
+                val header = row().apply { isClickable = true; setOnClickListener { openDetail(c.symbol) } }
+                header.addView(text("{c.symbol}  {c.direction}", 15f, if (c.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+                header.addView(text("{c.leverage}x", 12f, muted, true)); box.addView(header)
+                addLabel(box, "Current Price", currentPriceText(prices, c.symbol, priceState), white, true)
+                addLabel(box, "Entry Price", PriceFormatter.formatPrice(entryPrice), white, true)
+                addLabel(box, "Margin", PriceFormatter.formatUsdt(entryMargin), white, true)
+                addLabel(box, "Cycle TP", PriceFormatter.formatPrice(c.takeProfitPrice), white, true)
+                addLabel(box, "Entry SL", PriceFormatter.formatPrice(e.slPrice), white, true)
+                addLabel(box, "ROI", PriceFormatter.formatPercent(roi), pnlColor(roi), true)
+                addLabel(box, "Unrealized PNL", PriceFormatter.formatPnl(unreal), pnlColor(unreal), true)
+            }
         }
     }
-
     private fun renderPositionsClosed(body: LinearLayout, history: List<PaperHistoryCloseEntity>) {
         if (history.isEmpty()) { body.addView(text("No closed positions.", 13f, muted)); return }
         val tf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)

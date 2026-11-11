@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -42,7 +42,7 @@
             android:id="@+id/txtTopStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="● TESTNET"
+            android:text="â— TESTNET"
             android:textColor="#53C68C"
             android:textSize="11sp"
             android:textStyle="bold"
@@ -59,63 +59,77 @@
     <LinearLayout
         android:id="@+id/bottomNavigation"
         android:layout_width="match_parent"
-        android:layout_height="66dp"
+        android:layout_height="70dp"
         android:orientation="horizontal"
         android:gravity="center"
         android:background="#101B2D"
         android:paddingStart="4dp"
         android:paddingEnd="4dp">
 
-        <TextView
+        <LinearLayout
             android:id="@+id/navDashboard"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:orientation="vertical"
             android:gravity="center"
-            android:text="Home"
-            android:textColor="#F0B90B"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:clickable="true"
+            android:focusable="true">
+            <ImageView android:id="@+id/navDashboardIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_nav_home" android:tint="#F0B90B" />
+            <TextView android:id="@+id/navDashboardLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Home" android:textColor="#F0B90B" android:textSize="11sp" android:textStyle="bold" />
+        </LinearLayout>
 
-        <TextView
+        <LinearLayout
             android:id="@+id/navManual"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:orientation="vertical"
             android:gravity="center"
-            android:text="Trade"
-            android:textColor="#8190A5"
-            android:textSize="12sp" />
+            android:clickable="true"
+            android:focusable="true">
+            <ImageView android:id="@+id/navManualIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_nav_trade" android:tint="#8190A5" />
+            <TextView android:id="@+id/navManualLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Trade" android:textColor="#8190A5" android:textSize="11sp" />
+        </LinearLayout>
 
-        <TextView
+        <LinearLayout
             android:id="@+id/navPositions"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:orientation="vertical"
             android:gravity="center"
-            android:text="Future"
-            android:textColor="#8190A5"
-            android:textSize="12sp" />
+            android:clickable="true"
+            android:focusable="true">
+            <ImageView android:id="@+id/navPositionsIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_nav_future" android:tint="#8190A5" />
+            <TextView android:id="@+id/navPositionsLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Future" android:textColor="#8190A5" android:textSize="11sp" />
+        </LinearLayout>
 
-        <TextView
+        <LinearLayout
             android:id="@+id/navSettings"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:orientation="vertical"
             android:gravity="center"
-            android:text="Settings"
-            android:textColor="#8190A5"
-            android:textSize="12sp" />
+            android:clickable="true"
+            android:focusable="true">
+            <ImageView android:id="@+id/navSettingsIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_nav_settings" android:tint="#8190A5" />
+            <TextView android:id="@+id/navSettingsLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Settings" android:textColor="#8190A5" android:textSize="11sp" />
+        </LinearLayout>
 
-        <TextView
+        <LinearLayout
             android:id="@+id/navMore"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:orientation="vertical"
             android:gravity="center"
-            android:text="More"
-            android:textColor="#8190A5"
-            android:textSize="12sp" />
+            android:clickable="true"
+            android:focusable="true">
+            <ImageView android:id="@+id/navMoreIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_nav_more" android:tint="#8190A5" />
+            <TextView android:id="@+id/navMoreLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="More" android:textColor="#8190A5" android:textSize="11sp" />
+        </LinearLayout>
 
     </LinearLayout>
 </LinearLayout>
