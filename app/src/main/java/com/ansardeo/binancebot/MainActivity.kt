@@ -156,7 +156,7 @@ class MainActivity : AppCompatActivity() {
     private fun addLabel(parent: LinearLayout, label: String, value: String, valueColor: Int = white, isPrice: Boolean = false) {
         val line = row().apply { layoutParams = LinearLayout.LayoutParams(-1, -2) }
         val labelTv = text(label, 12f, muted)
-        line.addView(labelTv, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(24) })
+        line.addView(labelTv, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(32) })
         val v = if (isPrice) priceTv(value, 13f, valueColor) else text(value, 13f, valueColor, true).apply {
             gravity = Gravity.END
             textAlignment = View.TEXT_ALIGNMENT_VIEW_END
@@ -292,22 +292,45 @@ class MainActivity : AppCompatActivity() {
         renderWallet(); refreshMarket()
     }
 
+    private fun percentBadge(pct: Double?): TextView {
+        val v = pct ?: 0.0
+        val bg = when {
+            pct == null -> inputBg
+            v > 0.0 -> green
+            v < 0.0 -> red
+            else -> inputBg
+        }
+        val label = if (pct == null) "--" else PriceFormatter.formatPercent(pct)
+        return text(label, 12f, white, true).apply {
+            gravity = Gravity.CENTER
+            textAlignment = View.TEXT_ALIGNMENT_CENTER
+            background = rounded(bg, 8)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+        }
+    }
+
     private fun renderTickerList(target: LinearLayout, items: List<Ticker>) {
         target.removeAllViews()
         if (items.isEmpty()) { target.addView(text("No live data available.", 12f, muted)); return }
         items.take(10).forEach { t ->
             val line = row().apply {
                 isClickable = true; isFocusable = true
-                setPadding(dp(2), dp(6), dp(2), dp(6))
+                setPadding(dp(4), dp(8), dp(4), dp(8))
                 setOnClickListener { openDetail(t.symbol) }
             }
-            line.addView(text(t.symbol, 13f, white, true), LinearLayout.LayoutParams(0, -2, 1.1f))
-            line.addView(priceTv(PriceFormatter.formatPrice(t.lastPrice ?: t.markPrice), 12f, white), LinearLayout.LayoutParams(0, -2, 1.2f))
-            val pct = t.priceChangePercent ?: 0.0
-            val pctColor = when { pct > 0 -> green; pct < 0 -> red; else -> muted }
-            line.addView(text(PriceFormatter.formatPercent(t.priceChangePercent), 12f, pctColor, true).apply {
+            // 1. Symbol (neutral)
+            line.addView(text(t.symbol, 13f, white, true), LinearLayout.LayoutParams(0, -2, 1.2f).apply { marginEnd = dp(8) })
+            // 2. Price (neutral)
+            line.addView(priceTv(PriceFormatter.formatPrice(t.lastPrice ?: t.markPrice), 12f, white).apply {
                 gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END
-            }, LinearLayout.LayoutParams(0, -2, 0.8f))
+            }, LinearLayout.LayoutParams(0, -2, 1.1f).apply { marginEnd = dp(8) })
+            // 3. Change % box
+            val badgeWrap = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            }
+            badgeWrap.addView(percentBadge(t.priceChangePercent), LinearLayout.LayoutParams(-2, -2))
+            line.addView(badgeWrap, LinearLayout.LayoutParams(0, -2, 0.9f))
             target.addView(line)
             target.addView(View(this).apply { setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.divider)) }, LinearLayout.LayoutParams(-1, dp(1)))
         }
@@ -319,12 +342,17 @@ class MainActivity : AppCompatActivity() {
         if (favs.isEmpty()) { target.addView(text("No favorites yet. Open a coin and tap Favorite.", 12f, muted)); return }
         for (sym in favs) {
             val t = ov?.symbols?.get(sym)
-            val line = row().apply { isClickable = true; setPadding(dp(2), dp(6), dp(2), dp(6)); setOnClickListener { openDetail(sym) } }
-            line.addView(text(sym, 13f, white, true), LinearLayout.LayoutParams(0, -2, 1.1f))
-            line.addView(priceTv(PriceFormatter.formatPrice(t?.lastPrice ?: t?.markPrice), 12f, white), LinearLayout.LayoutParams(0, -2, 1.2f))
-            val pct = t?.priceChangePercent ?: 0.0
-            val pctColor = when { t == null -> muted; pct > 0 -> green; pct < 0 -> red; else -> muted }
-            line.addView(text(PriceFormatter.formatPercent(t?.priceChangePercent), 12f, pctColor, true).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END }, LinearLayout.LayoutParams(0, -2, 0.8f))
+            val line = row().apply { isClickable = true; setPadding(dp(4), dp(8), dp(4), dp(8)); setOnClickListener { openDetail(sym) } }
+            line.addView(text(sym, 13f, white, true), LinearLayout.LayoutParams(0, -2, 1.2f).apply { marginEnd = dp(8) })
+            line.addView(priceTv(PriceFormatter.formatPrice(t?.lastPrice ?: t?.markPrice), 12f, white).apply {
+                gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+            }, LinearLayout.LayoutParams(0, -2, 1.1f).apply { marginEnd = dp(8) })
+            val badgeWrap = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            }
+            badgeWrap.addView(percentBadge(t?.priceChangePercent), LinearLayout.LayoutParams(-2, -2))
+            line.addView(badgeWrap, LinearLayout.LayoutParams(0, -2, 0.9f))
             target.addView(line)
             target.addView(View(this).apply { setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.divider)) }, LinearLayout.LayoutParams(-1, dp(1)))
         }
@@ -346,18 +374,18 @@ class MainActivity : AppCompatActivity() {
         outer.addView(view)
         content.addView(ScrollView(this).apply { addView(outer) })
 
-        // Market Statistics are shown in Home coin details only (Part 2)
+        // Market Statistics are shown in Home coin details only
         view.findViewById<View?>(R.id.boxStats)?.visibility = View.GONE
 
         val symbolInput = view.findViewById<AutoCompleteTextView>(R.id.actvSymbol)
         val leverageSpinner = view.findViewById<Spinner>(R.id.spEntryLeverage)
-        val directionGroup = view.findViewById<RadioGroup>(R.id.rgDirection)
         val marginInput = view.findViewById<EditText>(R.id.etEntryMargin)
         val entryPriceInput = view.findViewById<EditText>(R.id.etEntryPrice)
-        val summary = view.findViewById<TextView>(R.id.txtEntrySummary)
+        val summaryBox = view.findViewById<LinearLayout>(R.id.boxEntrySummary)
         val livePriceTv = view.findViewById<TextView>(R.id.txtLivePrice)
         val liveStatus = view.findViewById<TextView>(R.id.txtLivePriceStatus)
-        val submit = view.findViewById<Button>(R.id.btnSubmitEntry)
+        val btnOpenLong = view.findViewById<Button>(R.id.btnOpenLong)
+        val btnOpenShort = view.findViewById<Button>(R.id.btnOpenShort)
         val result = view.findViewById<TextView>(R.id.txtManualResult)
 
         var currentLivePrice: Double? = null
@@ -369,34 +397,47 @@ class MainActivity : AppCompatActivity() {
 
         fun selectedSym(): String = symbolInput.text?.toString()?.trim()?.uppercase(Locale.US).orEmpty()
         fun selectedLev(): Int = LeverageConfig.SUPPORTED_LEVERAGES.getOrElse(leverageSpinner.selectedItemPosition) { 6 }
-        fun selectedDir(): String = if (directionGroup.checkedRadioButtonId == R.id.rbShort) "SHORT" else "LONG"
 
         leverageSpinner.adapter = createDarkSpinnerAdapter(LeverageConfig.SUPPORTED_LEVERAGES.map { "${it}x" })
         leverageSpinner.setSelection(LeverageConfig.SUPPORTED_LEVERAGES.indexOf(6).coerceAtLeast(0))
         leverageSpinner.setPopupBackgroundDrawable(rounded(inputBg, 10))
         symbolInput.setAdapter(ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, mutableListOf<String>()))
 
+        fun addSummaryRow(label: String, value: String, valueColor: Int = white, bold: Boolean = true) {
+            val line = row().apply { layoutParams = LinearLayout.LayoutParams(-1, -2) }
+            line.addView(text(label, 12f, muted), LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(24) })
+            line.addView(text(value, 12f, valueColor, bold).apply {
+                gravity = Gravity.END
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+            })
+            summaryBox.addView(line)
+            summaryBox.addView(View(this), LinearLayout.LayoutParams(-1, dp(6)))
+        }
+
         fun updateSummary() {
             val sym = selectedSym().ifBlank { "--" }
-            val dir = selectedDir()
             val margin = marginInput.text.toString().toDoubleOrNull() ?: 0.0
             val lev = try { LeverageConfig.requireSupported(selectedLev()) } catch (_: Exception) { 6 }
             val profile = LeverageConfig.requireProfile(lev)
             val intended = entryPriceInput.text.toString().toDoubleOrNull()
             val qty = if (intended != null && intended > 0 && margin > 0) (margin * lev) / intended else null
-            val tp = if (intended != null && intended > 0) if (dir == "LONG") intended * (1 + profile.tpPercent/100.0) else intended * (1 - profile.tpPercent/100.0) else null
-            val sl = if (intended != null && intended > 0) if (dir == "LONG") intended * (1 - profile.slPercent/100.0) else intended * (1 + profile.slPercent/100.0) else null
-            summary.text = buildString {
-                append("Stage: ${stage().title}\n")
-                append("Symbol: $sym | Direction: $dir\n")
-                append("Live price: ${PriceFormatter.formatPrice(currentLivePrice)} USDT\n")
-                append("Intended LIMIT entry: ${PriceFormatter.formatPrice(intended)} USDT (actual submitted price, editable)\n")
-                append("Margin: ${String.format(Locale.US, "%.4f", margin)} USDT | Leverage: ${lev}x\n")
-                append("Fixed table: TP ${profile.tpPercent}% | SL ${profile.slPercent}% | Avg ${profile.averagingPercent}% | Re-entry ${profile.reentryPullbackPercent}%\n")
-                if (qty != null) append("Estimated Qty: ${PriceFormatter.formatQty(qty)}\n")
-                append("Estimated initial TP: ${PriceFormatter.formatPrice(tp)} | per-entry SL: ${PriceFormatter.formatPrice(sl)}\n")
-                append("\nAll entries are LIMIT orders. Stage 1/2 simulated only.")
-            }
+            val tpLong = if (intended != null && intended > 0) intended * (1 + profile.tpPercent/100.0) else null
+            val slLong = if (intended != null && intended > 0) intended * (1 - profile.slPercent/100.0) else null
+            val tpShort = if (intended != null && intended > 0) intended * (1 - profile.tpPercent/100.0) else null
+            val slShort = if (intended != null && intended > 0) intended * (1 + profile.slPercent/100.0) else null
+            summaryBox.removeAllViews()
+            addSummaryRow("Stage", stage().title, if (stage()==TradingStage.STAGE_3) red else green)
+            addSummaryRow("Symbol", sym)
+            addSummaryRow("Live Price", "${PriceFormatter.formatPrice(currentLivePrice)} USDT")
+            addSummaryRow("Intended LIMIT Entry", "${PriceFormatter.formatPrice(intended)} USDT")
+            addSummaryRow("Margin", "${PriceFormatter.formatUsdt(margin)} / ${lev}x")
+            addSummaryRow("Fixed % (TP / SL)", "${profile.tpPercent}% / ${profile.slPercent}%")
+            addSummaryRow("Fixed % (Avg / Re-entry)", "${profile.averagingPercent}% / ${profile.reentryPullbackPercent}%")
+            addSummaryRow("Estimated Qty", if (qty != null) PriceFormatter.formatQty(qty) else "--")
+            addSummaryRow("Long TP / SL", "${PriceFormatter.formatPrice(tpLong)} / ${PriceFormatter.formatPrice(slLong)}", green)
+            addSummaryRow("Short TP / SL", "${PriceFormatter.formatPrice(tpShort)} / ${PriceFormatter.formatPrice(slShort)}", red)
+            val note = text("All entries are LIMIT orders. Stage 1/2 simulated only. No MARKET orders.", 11f, muted)
+            summaryBox.addView(note)
         }
 
         fun loadSymbolLive(sym: String) {
@@ -410,7 +451,7 @@ class MainActivity : AppCompatActivity() {
                     if (myGen != refreshGen || currentPage != "Trade" || selectedSym() != sym) return@launch
                     currentLivePrice = px
                     livePriceTv.text = "Live price: ${PriceFormatter.formatPrice(currentLivePrice)} USDT"
-                    liveStatus.text = if (currentLivePrice != null) "Live public mark/price (auto-refresh)" else "Price unavailable â€” retrying"
+                    liveStatus.text = if (currentLivePrice != null) "Live public mark/price (auto-refresh)" else "Price unavailable — retrying"
                     liveStatus.setTextColor(if (currentLivePrice != null) muted else red)
                     if (!userEditedEntryPrice && currentLivePrice != null && entryPriceInput.text.isNullOrBlank()) {
                         entryPriceInput.setText(PriceFormatter.formatPrice(currentLivePrice))
@@ -444,6 +485,37 @@ class MainActivity : AppCompatActivity() {
             val s = selectedSym(); if (s.isNotBlank()) loadSymbolLive(s)
         }
 
+        fun setButtonsEnabled(enabled: Boolean) { btnOpenLong.isEnabled = enabled; btnOpenShort.isEnabled = enabled }
+
+        fun submitEntry(dir: String) {
+            val sym = selectedSym()
+            if (sym.isBlank() || !sym.endsWith("USDT")) { toast("Select a valid USDⓈ-M symbol"); return }
+            val intended = entryPriceInput.text.toString().toDoubleOrNull()
+            if (intended == null || intended <= 0.0) { toast("Enter a valid intended LIMIT entry price"); return }
+            val margin = marginInput.text.toString().toDoubleOrNull() ?: 0.0
+            if (margin <= 0.0) { toast("Enter a valid margin"); return }
+            val lev = try { LeverageConfig.requireSupported(selectedLev()) } catch (e: Exception) { toast(e.message ?: "Invalid leverage"); return }
+            val s = stage()
+            val warn = if (s == TradingStage.STAGE_3) "STAGE 3 LIVE TRADING is disabled in this build. No real order will be placed." else "${s.shortLabel} is simulated. No real Binance order will be submitted."
+            AlertDialog.Builder(this)
+                .setTitle("Confirm $dir LIMIT Entry")
+                .setMessage("Stage: ${s.title}\n$warn\n\n$sym $dir\nIntended LIMIT price: ${PriceFormatter.formatPrice(intended)}\nLive price: ${PriceFormatter.formatPrice(currentLivePrice)}\nMargin ${PriceFormatter.formatUsdt(margin)} | ${lev}x\n\nPlace this $dir LIMIT entry?")
+                .setPositiveButton("CONFIRM") { _, _ ->
+                    if (s == TradingStage.STAGE_3) { result.setTextColor(red); result.text = "[X] Stage 3 is disabled by default and real order submission is not enabled in this build."; return@setPositiveButton }
+                    setButtonsEnabled(false); result.setTextColor(muted); result.text = "Placing simulated $dir LIMIT entry..."
+                    lifecycleScope.launch {
+                        val res = engine().openInitialLimit(this@MainActivity, sym, dir, margin, lev, intended)
+                        setButtonsEnabled(true)
+                        if (res.ok) {
+                            result.setTextColor(green); result.text = "[OK] ${res.message} (Cycle #${res.cycleId})"; toast("$dir LIMIT entry placed")
+                            runCatching { currentLivePrice?.let { engine().processAll(this@MainActivity, mapOf(sym to it)) } }
+                        } else {
+                            result.setTextColor(red); result.text = "[X] ${res.message}"
+                        }
+                    }
+                }.setNegativeButton("CANCEL", null).show()
+        }
+
         symbolInput.setOnItemClickListener { _, _, _, _ -> onSymbolChanged() }
         symbolInput.setOnEditorActionListener { _, _, _ -> onSymbolChanged(); false }
         symbolInput.setOnFocusChangeListener { _, hasFocus -> if (!hasFocus && selectedSym().isNotBlank()) loadSymbolLive(selectedSym()) }
@@ -453,37 +525,8 @@ class MainActivity : AppCompatActivity() {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) { updateSummary() }
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
-        directionGroup.setOnCheckedChangeListener { _, _ -> updateSummary() }
-
-        submit.setOnClickListener {
-            val sym = selectedSym()
-            if (sym.isBlank() || !sym.endsWith("USDT")) { toast("Select a valid USDâ“ˆ-M symbol"); return@setOnClickListener }
-            val intended = entryPriceInput.text.toString().toDoubleOrNull()
-            if (intended == null || intended <= 0.0) { toast("Enter a valid intended LIMIT entry price"); return@setOnClickListener }
-            val dir = selectedDir()
-            val margin = marginInput.text.toString().toDoubleOrNull() ?: 0.0
-            if (margin <= 0.0) { toast("Enter a valid margin"); return@setOnClickListener }
-            val lev = try { LeverageConfig.requireSupported(selectedLev()) } catch (e: Exception) { toast(e.message ?: "Invalid leverage"); return@setOnClickListener }
-            val s = stage()
-            val warn = if (s == TradingStage.STAGE_3) "STAGE 3 LIVE TRADING is disabled in this build. No real order will be placed." else "${s.shortLabel} is simulated. No real Binance order will be submitted."
-            AlertDialog.Builder(this)
-                .setTitle("Confirm LIMIT Entry")
-                .setMessage("Stage: ${s.title}\n$warn\n\n$sym $dir\nIntended LIMIT price: ${PriceFormatter.formatPrice(intended)}\nLive price: ${PriceFormatter.formatPrice(currentLivePrice)}\nMargin ${PriceFormatter.formatUsdt(margin)} | ${lev}x\n\nPlace this LIMIT entry?")
-                .setPositiveButton("CONFIRM") { _, _ ->
-                    if (s == TradingStage.STAGE_3) { result.setTextColor(red); result.text = "[X] Stage 3 is disabled by default and real order submission is not enabled in this build."; return@setPositiveButton }
-                    submit.isEnabled = false; result.setTextColor(muted); result.text = "Placing simulated LIMIT entry..."
-                    lifecycleScope.launch {
-                        val res = engine().openInitialLimit(this@MainActivity, sym, dir, margin, lev, intended)
-                        submit.isEnabled = true
-                        if (res.ok) {
-                            result.setTextColor(green); result.text = "[OK] ${res.message} (Cycle #${res.cycleId})"; toast("LIMIT entry placed")
-                            runCatching { currentLivePrice?.let { engine().processAll(this@MainActivity, mapOf(sym to it)) } }
-                        } else {
-                            result.setTextColor(red); result.text = "[X] ${res.message}"
-                        }
-                    }
-                }.setNegativeButton("CANCEL", null).show()
-        }
+        btnOpenLong.setOnClickListener { submitEntry("LONG") }
+        btnOpenShort.setOnClickListener { submitEntry("SHORT") }
 
         updateSummary()
     }

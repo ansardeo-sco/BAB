@@ -134,15 +134,7 @@
             <TextView android:id="@+id/txtStatsDist" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:textColor="@color/text_muted" android:textSize="11sp" />
         </LinearLayout>
 
-        <RadioGroup
-            android:id="@+id/rgDirection"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal">
-            <RadioButton android:id="@+id/rbLong" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:text="Long" android:textColor="@color/green" />
-            <RadioButton android:id="@+id/rbShort" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="16dp" android:text="Short" android:textColor="@color/red" />
-        </RadioGroup>
+
 
         <EditText
             android:id="@+id/etEntryMargin"
@@ -174,26 +166,47 @@
             android:background="@color/bg_input"
             android:padding="8dp" />
 
-        <TextView
-            android:id="@+id/txtEntrySummary"
+        <LinearLayout
+            android:id="@+id/boxEntrySummary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:background="@color/bg_card"
-            android:padding="12dp"
-            android:textColor="@color/text_primary"
-            android:textSize="12sp" />
+            android:orientation="vertical"
+            android:padding="12dp" />
 
-        <Button
-            android:id="@+id/btnSubmitEntry"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:background="@color/accent_yellow"
-            android:text="Place LIMIT Entry"
-            android:textAllCaps="false"
-            android:textColor="@color/bg_primary"
-            android:textStyle="bold" />
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnOpenLong"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:background="@color/green"
+                android:text="Open Long"
+                android:textAllCaps="false"
+                android:textColor="@color/white"
+                android:textStyle="bold" />
+
+            <Space
+                android:layout_width="10dp"
+                android:layout_height="1dp" />
+
+            <Button
+                android:id="@+id/btnOpenShort"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:background="@color/red"
+                android:text="Open Short"
+                android:textAllCaps="false"
+                android:textColor="@color/white"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/txtManualResult"
