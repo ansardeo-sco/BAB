@@ -189,7 +189,7 @@
                 android:background="@color/green"
                 android:text="Open Long"
                 android:textAllCaps="false"
-                android:textColor="@color/white"
+                android:textColor="@color/text_primary"
                 android:textStyle="bold" />
 
             <Space
@@ -204,7 +204,7 @@
                 android:background="@color/red"
                 android:text="Open Short"
                 android:textAllCaps="false"
-                android:textColor="@color/white"
+                android:textColor="@color/text_primary"
                 android:textStyle="bold" />
         </LinearLayout>
 
