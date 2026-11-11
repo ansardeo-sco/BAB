@@ -112,15 +112,15 @@ jobs:
       - name: Verify APK
         if: success()
         run: |
-          test -s app/build/outputs/apk/debug/app-debug.apk
-          ls -lh app/build/outputs/apk/debug/app-debug.apk
+          test -s app/build/outputs/apk/debug/Binance-Bot.apk
+          ls -lh app/build/outputs/apk/debug/Binance-Bot.apk
 
       - name: Upload APK artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: BAB-APK-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Binance-Bot-APK-debug
+          path: app/build/outputs/apk/debug/Binance-Bot.apk
           if-no-files-found: error
           retention-days: 14
 

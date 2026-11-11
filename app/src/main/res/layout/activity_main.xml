@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#080F1D">
+    android:background="@color/bg_primary">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -12,7 +12,7 @@
         android:orientation="horizontal"
         android:paddingStart="18dp"
         android:paddingEnd="18dp"
-        android:background="#101B2D">
+        android:background="@color/bg_surface">
 
         <LinearLayout
             android:layout_width="0dp"
@@ -24,7 +24,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="BAB"
-                android:textColor="#F0B90B"
+                android:textColor="@color/accent_yellow"
                 android:textSize="11sp"
                 android:textStyle="bold"
                 android:letterSpacing="0.12" />
@@ -33,22 +33,17 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="BINANCE ANDROID BOT"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/text_primary"
                 android:textSize="16sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/txtTopStatus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="â— TESTNET"
-            android:textColor="#53C68C"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:background="#193A35"
-            android:padding="10dp" />
     </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/divider" />
 
     <FrameLayout
         android:id="@+id/contentFrame"
@@ -62,7 +57,7 @@
         android:layout_height="70dp"
         android:orientation="horizontal"
         android:gravity="center"
-        android:background="#101B2D"
+        android:background="@color/bg_surface"
         android:paddingStart="4dp"
         android:paddingEnd="4dp">
 
@@ -76,7 +71,7 @@
             android:clickable="true"
             android:focusable="true">
             <ImageView android:id="@+id/navDashboardIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_nav_home" />
-            <TextView android:id="@+id/navDashboardLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Home" android:textColor="#F0B90B" android:textSize="11sp" android:textStyle="bold" />
+            <TextView android:id="@+id/navDashboardLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Home" android:textColor="@color/accent_yellow" android:textSize="11sp" android:textStyle="bold" />
         </LinearLayout>
 
         <LinearLayout

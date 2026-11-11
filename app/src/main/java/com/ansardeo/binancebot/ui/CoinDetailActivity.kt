@@ -117,7 +117,7 @@ class CoinDetailActivity : AppCompatActivity() {
             statsState.text = if (stats.isStale) "Statistics may be stale. ${stats.error}" else "Failed to load statistics: ${stats.error}"
             statsState.setTextColor(ContextCompat.getColor(this, color))
         } else {
-            status.text = "Live — Binance USDⓈ-M Futures (public, read-only)"
+            status.text = "Live - Binance USDT-M Futures (public, read-only)"
             status.setTextColor(ContextCompat.getColor(this, R.color.green))
             statsState.text = if (stats.isStale) "Stale statistics (refreshing...)" else "Actual market statistics loaded."
             statsState.setTextColor(ContextCompat.getColor(this, if (stats.isStale) R.color.accent_yellow else R.color.green))

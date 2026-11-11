@@ -3,9 +3,9 @@ package com.ansardeo.binancebot.data
 import android.content.Context
 
 enum class TradingPhase(val title: String) {
-    PHASE1_PAPER("Phase 1 — Paper Trading"),
-    PHASE2_DEMO("Phase 2 — Demo / Testnet"),
-    PHASE3_LIVE("Phase 3 — Live Trading"),
+    PHASE1_PAPER("Phase 1 - Paper Trading"),
+    PHASE2_DEMO("Phase 2 - Demo / Testnet"),
+    PHASE3_LIVE("Phase 3 - Live Trading"),
 }
 
 object PhaseStore {

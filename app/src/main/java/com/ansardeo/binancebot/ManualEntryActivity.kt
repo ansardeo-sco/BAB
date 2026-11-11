@@ -140,7 +140,7 @@ class ManualEntryActivity : AppCompatActivity() {
 
         fun submitEntry(dir: String) {
             val symbol = sym(); val intended = entryPriceInput.text.toString().toDoubleOrNull(); val margin = marginInput.text.toString().toDoubleOrNull() ?: 0.0
-            if (!symbol.endsWith("USDT")) { toast("Select a USDⓈ-M symbol"); return }
+            if (!symbol.endsWith("USDT")) { toast("Select a USDT-M symbol"); return }
             if (intended == null || intended <= 0.0) { toast("Enter intended LIMIT price"); return }
             if (margin <= 0.0) { toast("Enter margin"); return }
             val s = stage()

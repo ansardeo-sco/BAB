@@ -52,7 +52,6 @@ class MainActivity : AppCompatActivity() {
     private val lockedColor get() = ContextCompat.getColor(this, R.color.locked)
 
     private lateinit var content: FrameLayout
-    private lateinit var topStatus: TextView
     private lateinit var navItems: List<View>
     private lateinit var navIcons: List<ImageView>
     private lateinit var navLabels: List<TextView>
@@ -70,7 +69,6 @@ class MainActivity : AppCompatActivity() {
         handleTradeIntent(intent)
         setContentView(R.layout.activity_main)
         content = findViewById(R.id.contentFrame)
-        topStatus = findViewById(R.id.txtTopStatus)
         navItems = listOf(
             findViewById(R.id.navDashboard),
             findViewById(R.id.navManual),
@@ -121,14 +119,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateTopStatus() {
-        val s = stage()
-        val label = when (s) {
-            TradingStage.STAGE_1 -> "STAGE 1 â€” VIRTUAL"
-            TradingStage.STAGE_2 -> "STAGE 2 â€” DEMO"
-            TradingStage.STAGE_3 -> "STAGE 3 â€” LIVE"
-        }
-        topStatus.text = label
-        topStatus.setTextColor(if (s == TradingStage.STAGE_3) red else green)
+        // Stage badge removed from the header per UI requirements; stage is managed in Settings.
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -173,7 +164,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun pageContainer(): LinearLayout {
-        val outer = column().apply { setPadding(dp(16), dp(14), dp(16), dp(20)) }
+        val outer = column().apply { setPadding(dp(12), dp(12), dp(12), dp(20)) }
         val scroll = ScrollView(this).apply { isFillViewport = true; addView(outer) }
         content.removeAllViews(); content.addView(scroll); return outer
     }
@@ -207,23 +198,9 @@ class MainActivity : AppCompatActivity() {
     private fun dashboardPage() {
         stopRefresh()
         val root = pageContainer()
-        root.addView(text("Home", 23f, white, true))
-        root.addView(text("BAB â€” Binance Android Bot â€” ${stage().title}", 12f, yellow, true))
-        root.addView(text("Live USDâ“ˆ-M Futures market (public, read-only). Simulated stages never submit real orders.", 11f, muted))
-        addSpace(root, 8)
+        addSpace(root, 2)
 
-        val s = stage()
-        val phaseCard = addCard(root, "TRADING STAGES", "Data is isolated per stage. Stage 1/2 never submit real Binance orders.")
-        addLabel(phaseCard, "Stage 1", "Live Market Prices + Virtual Balance (100 USDT)${if (s==TradingStage.STAGE_1) " â€” ACTIVE" else ""}", if (s==TradingStage.STAGE_1) green else muted)
-        addLabel(phaseCard, "Stage 2", "Demo Trading (simulated, no real funds)${if (s==TradingStage.STAGE_2) " â€” ACTIVE" else ""}", if (s==TradingStage.STAGE_2) green else muted)
-        addLabel(phaseCard, "Stage 3", "Live Trading (disabled by default; requires explicit authorization)${if (s==TradingStage.STAGE_3) " â€” SELECTED" else ""}", if (s==TradingStage.STAGE_3) red else lockedColor)
-        addSpace(phaseCard, 6)
-        addActionButton(phaseCard, "SWITCH STAGE (tap to cycle)") {
-            val next = when (stage()) { TradingStage.STAGE_1 -> TradingStage.STAGE_2; TradingStage.STAGE_2 -> TradingStage.STAGE_3; TradingStage.STAGE_3 -> TradingStage.STAGE_1 }
-            StageStore.setCurrent(this, next); updateTopStatus(); toast("Switched to ${next.shortLabel}"); showPage("Home")
-        }
-
-        val balCard = addCard(root, "WALLET â€” ${stage().shortLabel}")
+        val balCard = addCard(root, "WALLET BALANCE - ${stage().shortLabel}")
         val balText = priceTv("-- USDT", 20f, green); balCard.addView(balText)
         val balSub = text("Loading ${stage().shortLabel} wallet...", 11f, muted); addSpace(balCard, 4); balCard.addView(balSub)
         if (stage() == TradingStage.STAGE_3) balCard.addView(text("Stage 3 live balance integration is disabled by default. No real orders.", 11f, red))
@@ -270,14 +247,14 @@ class MainActivity : AppCompatActivity() {
                 if (gen != refreshGen || currentPage != "Home") return@launch
                 lastOverview = ov
                 if (!ov.dataAvailable) {
-                    mStatus.text = "Unavailable â€” ${ov.error ?: "unable to load live prices"} (retrying)"
+                    mStatus.text = "Unavailable - ${ov.error ?: "unable to load live prices"} (retrying)"
                     mStatus.setTextColor(red)
                     mUpdated.text = "Last update: --"
                     listOf(secVol, secGain, secLoss).forEach { it.removeAllViews(); it.addView(text("Unable to load live prices. Retrying...", 12f, red)) }
                     renderFavorites(secFav, null)
                 } else {
                     val label = if (ov.stale) "Stale" else if (ov.live) "Live" else ov.status
-                    mStatus.text = "$label â€” Binance USDâ“ˆ-M Futures (public, read-only)"
+                    mStatus.text = "$label - Binance USDT-M Futures (public, read-only)"
                     mStatus.setTextColor(if (ov.stale) yellow else green)
                     mUpdated.text = "Last update: ${ov.lastUpdate ?: "--"} (auto-refresh)"
                     renderTickerList(secVol, ov.volumeLeaders)
@@ -301,11 +278,14 @@ class MainActivity : AppCompatActivity() {
             else -> inputBg
         }
         val label = if (pct == null) "--" else PriceFormatter.formatPercent(pct)
-        return text(label, 12f, white, true).apply {
+        return text(label, 11.5f, white, true).apply {
             gravity = Gravity.CENTER
             textAlignment = View.TEXT_ALIGNMENT_CENTER
-            background = rounded(bg, 8)
-            setPadding(dp(8), dp(6), dp(8), dp(6))
+            includeFontPadding = false
+            // Fixed-size, sharp 90-degree corners so every % change badge lines up exactly.
+            background = GradientDrawable().apply { setColor(bg); cornerRadius = 0f }
+            layoutParams = LinearLayout.LayoutParams(dp(70), dp(28))
+            setPadding(dp(2), 0, dp(2), 0)
         }
     }
 
@@ -315,22 +295,22 @@ class MainActivity : AppCompatActivity() {
         items.take(10).forEach { t ->
             val line = row().apply {
                 isClickable = true; isFocusable = true
-                setPadding(dp(4), dp(8), dp(4), dp(8))
+                setPadding(dp(10), dp(13), dp(10), dp(13))
                 setOnClickListener { openDetail(t.symbol) }
             }
             // 1. Symbol (neutral)
-            line.addView(text(t.symbol, 13f, white, true), LinearLayout.LayoutParams(0, -2, 1.2f).apply { marginEnd = dp(8) })
+            line.addView(text(t.symbol, 13f, white, true), LinearLayout.LayoutParams(0, -2, 1.15f).apply { marginEnd = dp(10) })
             // 2. Price (neutral)
             line.addView(priceTv(PriceFormatter.formatPrice(t.lastPrice ?: t.markPrice), 12f, white).apply {
                 gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END
-            }, LinearLayout.LayoutParams(0, -2, 1.1f).apply { marginEnd = dp(8) })
-            // 3. Change % box
+            }, LinearLayout.LayoutParams(0, -2, 1.0f).apply { marginEnd = dp(10) })
+            // 3. Change % box - fixed-width slot keeps every badge aligned
             val badgeWrap = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.END or Gravity.CENTER_VERTICAL
             }
-            badgeWrap.addView(percentBadge(t.priceChangePercent), LinearLayout.LayoutParams(-2, -2))
-            line.addView(badgeWrap, LinearLayout.LayoutParams(0, -2, 0.9f))
+            badgeWrap.addView(percentBadge(t.priceChangePercent), LinearLayout.LayoutParams(dp(70), dp(28)))
+            line.addView(badgeWrap, LinearLayout.LayoutParams(dp(78), -2))
             target.addView(line)
             target.addView(View(this).apply { setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.divider)) }, LinearLayout.LayoutParams(-1, dp(1)))
         }
@@ -342,17 +322,17 @@ class MainActivity : AppCompatActivity() {
         if (favs.isEmpty()) { target.addView(text("No favorites yet. Open a coin and tap Favorite.", 12f, muted)); return }
         for (sym in favs) {
             val t = ov?.symbols?.get(sym)
-            val line = row().apply { isClickable = true; setPadding(dp(4), dp(8), dp(4), dp(8)); setOnClickListener { openDetail(sym) } }
-            line.addView(text(sym, 13f, white, true), LinearLayout.LayoutParams(0, -2, 1.2f).apply { marginEnd = dp(8) })
+            val line = row().apply { isClickable = true; setPadding(dp(10), dp(13), dp(10), dp(13)); setOnClickListener { openDetail(sym) } }
+            line.addView(text(sym, 13f, white, true), LinearLayout.LayoutParams(0, -2, 1.15f).apply { marginEnd = dp(10) })
             line.addView(priceTv(PriceFormatter.formatPrice(t?.lastPrice ?: t?.markPrice), 12f, white).apply {
                 gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END
-            }, LinearLayout.LayoutParams(0, -2, 1.1f).apply { marginEnd = dp(8) })
+            }, LinearLayout.LayoutParams(0, -2, 1.0f).apply { marginEnd = dp(10) })
             val badgeWrap = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.END or Gravity.CENTER_VERTICAL
             }
-            badgeWrap.addView(percentBadge(t?.priceChangePercent), LinearLayout.LayoutParams(-2, -2))
-            line.addView(badgeWrap, LinearLayout.LayoutParams(0, -2, 0.9f))
+            badgeWrap.addView(percentBadge(t?.priceChangePercent), LinearLayout.LayoutParams(dp(70), dp(28)))
+            line.addView(badgeWrap, LinearLayout.LayoutParams(dp(78), -2))
             target.addView(line)
             target.addView(View(this).apply { setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.divider)) }, LinearLayout.LayoutParams(-1, dp(1)))
         }
@@ -451,7 +431,7 @@ class MainActivity : AppCompatActivity() {
                     if (myGen != refreshGen || currentPage != "Trade" || selectedSym() != sym) return@launch
                     currentLivePrice = px
                     livePriceTv.text = "Live price: ${PriceFormatter.formatPrice(currentLivePrice)} USDT"
-                    liveStatus.text = if (currentLivePrice != null) "Live public mark/price (auto-refresh)" else "Price unavailable — retrying"
+                    liveStatus.text = if (currentLivePrice != null) "Live public mark/price (auto-refresh)" else "Price unavailable - retrying"
                     liveStatus.setTextColor(if (currentLivePrice != null) muted else red)
                     if (!userEditedEntryPrice && currentLivePrice != null && entryPriceInput.text.isNullOrBlank()) {
                         entryPriceInput.setText(PriceFormatter.formatPrice(currentLivePrice))
@@ -489,7 +469,7 @@ class MainActivity : AppCompatActivity() {
 
         fun submitEntry(dir: String) {
             val sym = selectedSym()
-            if (sym.isBlank() || !sym.endsWith("USDT")) { toast("Select a valid USDⓈ-M symbol"); return }
+            if (sym.isBlank() || !sym.endsWith("USDT")) { toast("Select a valid USDT-M symbol"); return }
             val intended = entryPriceInput.text.toString().toDoubleOrNull()
             if (intended == null || intended <= 0.0) { toast("Enter a valid intended LIMIT entry price"); return }
             val margin = marginInput.text.toString().toDoubleOrNull() ?: 0.0
@@ -819,7 +799,7 @@ class MainActivity : AppCompatActivity() {
     private fun settingsPage() {
         val root = pageContainer()
         root.addView(text("Settings", 23f, white, true))
-        root.addView(text("Default settings (applied to trading). TP/SL/Averaging/Re-entry percentages are auto-selected from the fixed leverage table (3xâ€“20x) and are not editable.", 12f, muted))
+        root.addView(text("Default settings (applied to trading). TP/SL/Averaging/Re-entry percentages are auto-selected from the fixed leverage table (3x-20x) and are not editable.", 12f, muted))
         val st = addCard(root, "ACTIVE STAGE", "Current: ${stage().title}")
         addActionButton(st, "CHANGE STAGE") {
             val opts = TradingStage.entries.map { it.title }.toTypedArray()
@@ -842,7 +822,7 @@ class MainActivity : AppCompatActivity() {
         val marginEt = et("Initial Margin (USDT)", String.format(Locale.US, "%.4f", s.marginAmount).trimEnd('0').trimEnd('.'))
         val avgMarginEt = et("Averaging Margin (USDT)", String.format(Locale.US, "%.4f", s.averagingMargin).trimEnd('0').trimEnd('.'))
         val oppMarginEt = et("Opposite-side Margin (USDT)", String.format(Locale.US, "%.4f", s.oppositeMargin).trimEnd('0').trimEnd('.'))
-        sc.addView(text("Leverage (3xâ€“20x)", 12f, muted, true))
+        sc.addView(text("Leverage (3x-20x)", 12f, muted, true))
         val levSpin = Spinner(this).apply { adapter = createDarkSpinnerAdapter(LeverageConfig.SUPPORTED_LEVERAGES.map { "${it}x" }); setPopupBackgroundDrawable(rounded(inputBg, 10)); setBackgroundColor(inputBg); setSelection(LeverageConfig.SUPPORTED_LEVERAGES.indexOf(s.leverage).coerceAtLeast(0)) }
         sc.addView(levSpin, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
         val info = text("", 12f, yellow); sc.addView(info)
@@ -875,20 +855,20 @@ class MainActivity : AppCompatActivity() {
         TradingStage.entries.forEach { stg ->
             val active = stage() == stg
             val desc = when (stg) {
-                TradingStage.STAGE_1 -> "Live USDâ“ˆ-M prices + virtual 100 USDT. Simulated execution only."
+                TradingStage.STAGE_1 -> "Live USDT-M prices + virtual 100 USDT. Simulated execution only."
                 TradingStage.STAGE_2 -> "Demo trading with simulated wallet/orders/positions/history. No real funds."
-                TradingStage.STAGE_3 -> "Live Binance USDâ“ˆ-M (scaffold). Disabled by default. This build does not submit real orders."
+                TradingStage.STAGE_3 -> "Live Binance USDT-M (scaffold). Disabled by default. This build does not submit real orders."
             }
             addSpace(phases, 6)
-            phases.addView(text("${stg.title}${if (active) " â€” ACTIVE" else ""}", 13f, if (active && stg!=TradingStage.STAGE_3) green else if (active) red else muted, true))
+            phases.addView(text("${stg.title}${if (active) " - ACTIVE" else ""}", 13f, if (active && stg!=TradingStage.STAGE_3) green else if (active) red else muted, true))
             phases.addView(text(desc, 11f, muted))
         }
         val info = addCard(root, "SYSTEM INFORMATION")
-        addLabel(info, "Application", "BAB â€” Binance Android Bot")
+        addLabel(info, "Application", "BAB - Binance Android Bot")
         addLabel(info, "Version", BuildConfig.VERSION_NAME)
         addLabel(info, "Stage 1/2 Orders", "SIMULATED ONLY (no real Binance orders)", green)
         addLabel(info, "Stage 3 Live", "DISABLED BY DEFAULT", red)
-        addLabel(info, "Market Data", "Binance public USDâ“ˆ-M endpoints (read-only)", muted)
+        addLabel(info, "Market Data", "Binance public USDT-M endpoints (read-only)", muted)
 
         val s = stage()
         if (s != TradingStage.STAGE_3) {

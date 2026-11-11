@@ -41,6 +41,15 @@ android {
     kotlinOptions {
         jvmTarget = '17'
     }
+
+    // Downloaded/installed artifact name required by the release checklist.
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            if (variant.buildType.name == 'debug') {
+                outputFileName = 'Binance-Bot.apk'
+            }
+        }
+    }
 }
 
 dependencies {

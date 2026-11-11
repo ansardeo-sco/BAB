@@ -64,7 +64,7 @@ class MarketRepository(
         }
     }
 
-    /** USDⓈ-M USDT perpetual symbols (public). */
+    /** USDT-M USDT perpetual symbols (public). */
     suspend fun getUsdmSymbols(): Result<List<String>> = withContext(Dispatchers.IO) {
         try {
             val ex = getJson("https://fapi.binance.com/fapi/v1/exchangeInfo") ?: return@withContext Result.failure(IOException("No exchange info"))
