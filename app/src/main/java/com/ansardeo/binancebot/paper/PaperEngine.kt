@@ -427,7 +427,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
             if (entry.direction == "LONG") {
                 val activationPrice = base * (1.0 + act)
                 if (!entry.trailingActivated) {
-                    if (mark >= activationPrice) {
+                    if (mark + 1e-9 >= activationPrice) {
                         val extreme = mark
                         e = e.copy(trailingActivated = true, trailingExtremePrice = extreme, trailingStopPrice = extreme * (1.0 - cb))
                         changed = true
@@ -440,7 +440,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
             } else {
                 val activationPrice = base * (1.0 - act)
                 if (!entry.trailingActivated) {
-                    if (mark <= activationPrice) {
+                    if (mark - 1e-9 <= activationPrice) {
                         val extreme = mark
                         e = e.copy(trailingActivated = true, trailingExtremePrice = extreme, trailingStopPrice = extreme * (1.0 + cb))
                         changed = true
@@ -457,7 +457,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         fun isTrailingStopHit(entry: PaperEntryEntity, mark: Double): Boolean {
             if (!entry.trailingActivated) return false
             val stop = entry.trailingStopPrice ?: return false
-            return if (entry.direction == "LONG") mark <= stop else mark >= stop
+            return if (entry.direction == "LONG") mark <= stop + 1e-9 else mark >= stop - 1e-9
         }
     }
 
