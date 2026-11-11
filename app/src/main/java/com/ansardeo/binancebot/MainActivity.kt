@@ -154,10 +154,13 @@ class MainActivity : AppCompatActivity() {
         }
 
     private fun addLabel(parent: LinearLayout, label: String, value: String, valueColor: Int = white, isPrice: Boolean = false) {
-        val line = row()
+        val line = row().apply { layoutParams = LinearLayout.LayoutParams(-1, -2) }
         val labelTv = text(label, 12f, muted)
-        line.addView(labelTv, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(16) })
-        val v = if (isPrice) priceTv(value, 13f, valueColor) else text(value, 13f, valueColor, true)
+        line.addView(labelTv, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(24) })
+        val v = if (isPrice) priceTv(value, 13f, valueColor) else text(value, 13f, valueColor, true).apply {
+            gravity = Gravity.END
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+        }
         line.addView(v)
         parent.addView(line)
         addSpace(parent, 8)
@@ -631,8 +634,8 @@ class MainActivity : AppCompatActivity() {
                 val roi = if (unreal != null && entryMargin > 1e-12) (unreal / entryMargin) * 100.0 else null
                 val box = makeItemCard(body)
                 val header = row().apply { isClickable = true; setOnClickListener { openDetail(c.symbol) } }
-                header.addView(text("{c.symbol}  {c.direction}", 15f, if (c.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
-                header.addView(text("{c.leverage}x", 12f, muted, true)); box.addView(header)
+                header.addView(text("${c.symbol}  ${c.direction}", 15f, if (c.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+                header.addView(text("${c.leverage}x", 12f, muted, true)); box.addView(header)
                 addLabel(box, "Current Price", currentPriceText(prices, c.symbol, priceState), white, true)
                 addLabel(box, "Entry Price", PriceFormatter.formatPrice(entryPrice), white, true)
                 addLabel(box, "Margin", PriceFormatter.formatUsdt(entryMargin), white, true)
