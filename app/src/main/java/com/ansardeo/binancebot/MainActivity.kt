@@ -23,6 +23,7 @@ import com.ansardeo.binancebot.paper.PaperEngineProvider
 import com.ansardeo.binancebot.paper.db.PaperCycleEntity
 import com.ansardeo.binancebot.paper.db.PaperCycleWithEntries
 import com.ansardeo.binancebot.paper.db.PaperDatabase
+import com.ansardeo.binancebot.paper.db.PaperEntryEntity
 import com.ansardeo.binancebot.paper.db.PaperHistoryCloseEntity
 import com.ansardeo.binancebot.paper.db.PaperOrderEntity
 import com.ansardeo.binancebot.paper.db.PaperReentryPlanEntity
