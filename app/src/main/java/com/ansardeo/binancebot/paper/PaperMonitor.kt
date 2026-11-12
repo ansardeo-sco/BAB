@@ -30,6 +30,7 @@ object PaperMonitor {
                         PaperEngineProvider.get(appCtx, TradingStage.STAGE_1),
                         PaperEngineProvider.get(appCtx, TradingStage.STAGE_2)
                     )
+                    engines.forEach { e -> e.symbolRulesProvider = { sym -> repo.getCachedSymbolRules(sym) ?: repo.getSymbolRules(sym).rules } }
                     val workSymbols = mutableSetOf<String>()
                     for (st in listOf(TradingStage.STAGE_1.id, TradingStage.STAGE_2.id)) {
                         runCatching { dao.getActiveCycles(st) }.getOrDefault(emptyList()).forEach { workSymbols += it.symbol }
@@ -38,6 +39,8 @@ object PaperMonitor {
                     }
                     val hasWork = workSymbols.isNotEmpty() || engines.any { runCatching { it.hasPendingWork() }.getOrDefault(false) }
                     if (hasWork) {
+                        // Prefetch symbol rules for Stage 1/2 Binance-filter simulation
+                        workSymbols.forEach { sym -> runCatching { repo.getSymbolRules(sym) } }
                         val prices = mutableMapOf<String, Double>()
                         // Overview prices (bulk)
                         runCatching { repo.getOverview() }.getOrNull()?.symbols?.forEach { (k, v) ->

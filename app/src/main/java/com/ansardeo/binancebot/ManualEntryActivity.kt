@@ -152,7 +152,10 @@ class ManualEntryActivity : AppCompatActivity() {
                 .setPositiveButton("CONFIRM") { _, _ ->
                     setButtonsEnabled(false); result.setTextColor(muted); result.text = "Placing simulated $dir LIMIT entry..."
                     lifecycleScope.launch {
-                        val res = PaperEngineProvider.get(this@ManualEntryActivity, s).openInitialLimit(this@ManualEntryActivity, symbol, dir, margin, lev, intended)
+                        val eng = PaperEngineProvider.get(this@ManualEntryActivity, s).apply {
+                            symbolRulesProvider = { sym -> marketRepo.getCachedSymbolRules(sym) ?: marketRepo.getSymbolRules(sym).rules }
+                        }
+                        val res = eng.openInitialLimit(this@ManualEntryActivity, symbol, dir, margin, lev, intended)
                         setButtonsEnabled(true)
                         result.text = if (res.ok) "[OK] ${res.message}" else "[X] ${res.message}"
                         result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, if (res.ok) R.color.green else R.color.red))

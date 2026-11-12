@@ -3,10 +3,10 @@
 BAB (Binance Android Bot) is an Android application for managing USDⓈ-M Futures trading workflows with **three independent trading stages**:
 
 1. **Stage 1 – Live Market Prices + Virtual Balance**: uses live public Binance USDⓈ-M Futures market prices with a **virtual 100 USDT** wallet. **No real Binance orders. No API keys required.**
-2. **Stage 2 – Demo Trading**: simulated/demo trading (virtual wallet, simulated positions/orders/pipeline/history). **No real funds.**
+2. **Stage 2 – Demo Simulation (current implementation)**: **LOCAL SIMULATION ONLY** in-app (virtual wallet, simulated positions/orders/pipeline/history) using live public market data. **Binance Futures Demo API is not connected; no real Binance Demo orders are submitted.** No real funds. (Intended future: Binance USDⓈ-M Futures Demo via API with same shared strategy.)
 3. **Stage 3 – Live Trading**: scaffold for real Binance USDⓈ-M Futures integration. **Disabled by default.** This build **does not submit real Binance orders**. Any future live integration must require explicit user authorization, secure credential storage (Android Keystore), minimum permissions (no withdrawals), and thorough testing.
 
-> **Safety**: Stage 1 and Stage 2 are strictly simulated. The app never submits real Binance orders from Stage 1 or Stage 2. Stage 3 is disabled by default and blocked in this build.
+> **Safety**: Stage 1 and the current Stage 2 implementation are strictly local simulations. The app never submits authenticated Binance orders from Stage 1 or Stage 2. Stage 3 is disabled by default and blocked in this build.
 
 ## Features (current build)
 

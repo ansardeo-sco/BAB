@@ -39,7 +39,9 @@ class MainActivity : AppCompatActivity() {
     private val marketRepo = MarketRepository()
     private val paperDb by lazy { PaperDatabase.get(this) }
     private fun stage() = StageStore.current(this)
-    private fun engine(): PaperEngine = PaperEngineProvider.get(this, stage())
+    private fun engine(): PaperEngine = PaperEngineProvider.get(this, stage()).apply {
+        symbolRulesProvider = { sym -> marketRepo.getCachedSymbolRules(sym) ?: marketRepo.getSymbolRules(sym).rules }
+    }
     private fun stageId() = stage().id
 
     private val bg get() = ContextCompat.getColor(this, R.color.bg_primary)
@@ -1031,7 +1033,7 @@ class MainActivity : AppCompatActivity() {
     private fun settingsPage() {
         val root = pageContainer()
         root.addView(text("Settings", 23f, white, true))
-        root.addView(text("Default settings (applied to trading). TP/SL/Averaging/Re-entry percentages are auto-selected from the fixed leverage table (3x-20x) and are not editable.", 12f, muted))
+        root.addView(text("Default settings (applied to trading). Trailing/SL/Averaging/Re-entry percentages are auto-selected from the fixed leverage table (1x–20x, 25x) and are not editable. Fixed Take Profit is not used.", 12f, muted))
         val st = addCard(root, "ACTIVE STAGE", "Current: ${stage().title}")
         addActionButton(st, "CHANGE STAGE") {
             val opts = TradingStage.entries.map { it.title }.toTypedArray()
@@ -1040,7 +1042,7 @@ class MainActivity : AppCompatActivity() {
         val box = column(); root.addView(box)
         box.removeAllViews()
         val s = LocalCoinSettingsStore.loadGlobal(this)
-        val sc = addCard(box, "DEFAULT CONFIGURATION", "Saved locally. Trading % come from the fixed leverage table.")
+        val sc = addCard(box, "DEFAULT CONFIGURATION", "Saved locally. Trading % come from the fixed leverage table (1x–20x, 25x).")
         fun sw(label: String, checked: Boolean) = Switch(this).apply { text = label; isChecked = checked; setTextColor(white) }.also { sc.addView(it); addSpace(sc, 4) }
         val swL = sw("LONG enabled", s.enabledLong)
         val swS = sw("SHORT enabled", s.enabledShort)
@@ -1054,7 +1056,7 @@ class MainActivity : AppCompatActivity() {
         val marginEt = et("Initial Margin (USDT)", String.format(Locale.US, "%.4f", s.marginAmount).trimEnd('0').trimEnd('.'))
         val avgMarginEt = et("Averaging Margin (USDT)", String.format(Locale.US, "%.4f", s.averagingMargin).trimEnd('0').trimEnd('.'))
         val oppMarginEt = et("Opposite-side Margin (USDT)", String.format(Locale.US, "%.4f", s.oppositeMargin).trimEnd('0').trimEnd('.'))
-        sc.addView(text("Leverage (3x-20x)", 12f, muted, true))
+        sc.addView(text("Leverage (1x–20x, 25x)", 12f, muted, true))
         val levSpin = Spinner(this).apply { adapter = createDarkSpinnerAdapter(LeverageConfig.SUPPORTED_LEVERAGES.map { "${it}x" }); setPopupBackgroundDrawable(rounded(inputBg, 10)); setBackgroundColor(inputBg); setSelection(LeverageConfig.SUPPORTED_LEVERAGES.indexOf(s.leverage).coerceAtLeast(0)) }
         sc.addView(levSpin, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
         val info = text("", 12f, yellow); sc.addView(info)
@@ -1088,7 +1090,7 @@ class MainActivity : AppCompatActivity() {
             val active = stage() == stg
             val desc = when (stg) {
                 TradingStage.STAGE_1 -> "Live USDT-M prices + virtual 100 USDT. Simulated execution only."
-                TradingStage.STAGE_2 -> "Demo trading with simulated wallet/orders/positions/history. No real funds."
+                TradingStage.STAGE_2 -> "Demo environment scaffold (LOCAL SIMULATION ONLY): virtual wallet/orders/positions/history in-app. Binance Demo API is not connected and no real Demo orders are submitted."
                 TradingStage.STAGE_3 -> "Live Binance USDT-M (scaffold). Disabled by default. This build does not submit real orders."
             }
             addSpace(phases, 6)

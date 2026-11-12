@@ -8,6 +8,8 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.math.BigDecimal
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
@@ -18,6 +20,8 @@ class MarketRepository(
         .build()
 ) {
     private val backendBase = BuildConfig.BACKEND_BASE_URL
+    private val exchangeRulesCache = ConcurrentHashMap<String, Pair<SymbolFilterRules, Long>>()
+    private val rulesTtlMs = 10 * 60 * 1000L
 
     suspend fun getOverview(): MarketOverview = withContext(Dispatchers.IO) {
         try {
@@ -83,6 +87,64 @@ class MarketRepository(
             Result.failure(e)
         }
     }
+
+    /** Fetch and cache Binance USDⓈ-M symbol filters for Stage 1 rule simulation/validation. */
+    suspend fun getSymbolRules(symbol: String): SymbolRulesResult = withContext(Dispatchers.IO) {
+        val sym = symbol.uppercase().trim()
+        if (sym.isBlank()) return@withContext SymbolRulesResult(null, error = "Invalid symbol")
+        val now = System.currentTimeMillis()
+        exchangeRulesCache[sym]?.let { (r, ts) -> if (now - ts <= rulesTtlMs) return@withContext SymbolRulesResult(r) }
+        try {
+            val ex = getJson("https://fapi.binance.com/fapi/v1/exchangeInfo?symbol=$sym")
+                ?: return@withContext SymbolRulesResult(exchangeRulesCache[sym]?.first, stale = exchangeRulesCache[sym] != null, error = "Unable to load exchange filters")
+            val arr = ex.optJSONArray("symbols") ?: JSONArray()
+            val s = arr.optJSONObject(0) ?: return@withContext SymbolRulesResult(exchangeRulesCache[sym]?.first, stale = exchangeRulesCache[sym] != null, error = "Symbol not found in exchangeInfo")
+            val rules = parseSymbolRules(sym, s)
+            exchangeRulesCache[sym] = rules to now
+            SymbolRulesResult(rules)
+        } catch (e: Exception) {
+            val cached = exchangeRulesCache[sym]?.first
+            SymbolRulesResult(cached, stale = cached != null, error = e.message ?: "Failed to load exchange filters")
+        }
+    }
+
+    fun getCachedSymbolRules(symbol: String): SymbolFilterRules? = exchangeRulesCache[symbol.uppercase().trim()]?.first
+
+    private fun parseSymbolRules(symbol: String, s: JSONObject): SymbolFilterRules {
+        var tickSize: BigDecimal? = null
+        var stepSize: BigDecimal? = null
+        var minQty: BigDecimal? = null
+        var maxQty: BigDecimal? = null
+        var minNotional: BigDecimal? = null
+        val filters = s.optJSONArray("filters") ?: JSONArray()
+        for (i in 0 until filters.length()) {
+            val f = filters.optJSONObject(i) ?: continue
+            when (f.optString("filterType")) {
+                "PRICE_FILTER" -> tickSize = f.optString("tickSize").toBigDecimalOrNullSafe()
+                "LOT_SIZE" -> {
+                    stepSize = f.optString("stepSize").toBigDecimalOrNullSafe()
+                    minQty = f.optString("minQty").toBigDecimalOrNullSafe()
+                    maxQty = f.optString("maxQty").toBigDecimalOrNullSafe()
+                }
+                "MIN_NOTIONAL", "NOTIONAL" -> {
+                    val n = f.optString("notional").toBigDecimalOrNullSafe() ?: f.optString("minNotional").toBigDecimalOrNullSafe()
+                    if (n != null) minNotional = n
+                }
+            }
+        }
+        return SymbolFilterRules(
+            symbol = symbol,
+            tickSize = tickSize,
+            stepSize = stepSize,
+            minQty = minQty,
+            maxQty = maxQty,
+            minNotional = minNotional,
+            pricePrecision = s.optInt("pricePrecision").takeIf { s.has("pricePrecision") },
+            quantityPrecision = s.optInt("quantityPrecision").takeIf { s.has("quantityPrecision") }
+        )
+    }
+
+    private fun String.toBigDecimalOrNullSafe(): BigDecimal? = try { if (isBlank()) null else BigDecimal(this) } catch (_: Exception) { null }
 
     /** Actual 24h + 7d market statistics from Binance public data. RSI clearly identified by interval/method. */
     suspend fun getMarketStats(symbol: String): MarketStats = withContext(Dispatchers.IO) {

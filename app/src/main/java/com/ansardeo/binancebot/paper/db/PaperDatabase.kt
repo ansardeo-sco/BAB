@@ -29,7 +29,8 @@ abstract class PaperDatabase : RoomDatabase() {
                 context.applicationContext,
                 PaperDatabase::class.java,
                 "bab_trading.db"
-            ).fallbackToDestructiveMigration()
+            )
+                // Safe migrations required for schema changes; do not destroy user trading records.
                 .build().also { INSTANCE = it }
         }
     }
