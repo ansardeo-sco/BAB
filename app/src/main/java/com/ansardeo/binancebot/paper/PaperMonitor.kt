@@ -27,12 +27,12 @@ object PaperMonitor {
             while (isActive) {
                 try {
                     val engines = listOf(
-                        PaperEngineProvider.get(appCtx, TradingStage.STAGE_1),
-                        PaperEngineProvider.get(appCtx, TradingStage.STAGE_2)
+                        PaperEngineProvider.get(appCtx, TradingStage.STAGE_1)
                     )
                     engines.forEach { e -> e.symbolRulesProvider = { sym -> repo.getCachedSymbolRules(sym) ?: repo.getSymbolRules(sym).rules } }
                     val workSymbols = mutableSetOf<String>()
-                    for (st in listOf(TradingStage.STAGE_1.id, TradingStage.STAGE_2.id)) {
+                    // Stage 2 is Binance Demo API-backed (not local simulation); monitor Stage 1 local simulation only.
+                    for (st in listOf(TradingStage.STAGE_1.id)) {
                         runCatching { dao.getActiveCycles(st) }.getOrDefault(emptyList()).forEach { workSymbols += it.symbol }
                         runCatching { dao.getPendingEntries(st) }.getOrDefault(emptyList()).forEach { workSymbols += it.symbol }
                         runCatching { dao.getPendingReentryPlans(st) }.getOrDefault(emptyList()).forEach { workSymbols += it.symbol }

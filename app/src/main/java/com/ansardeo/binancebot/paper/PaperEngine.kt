@@ -58,8 +58,9 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
 
     suspend fun openInitialLimit(context: Context, symbol: String, direction: String, margin: Double, leverage: Int, intendedLimitPrice: Double): EngineResult {
         if (stage == TradingStage.STAGE_3) return EngineResult(false, "Stage 3 Live Trading is disabled by default. No real order submitted.")
+        if (stage == TradingStage.STAGE_2) return EngineResult(false, "Stage 2 uses Binance Futures Demo API for order submission.")
         return mutex.withLock {
-            val rules = if (stage.isSimulated) runCatching { symbolRulesProvider?.invoke(symbol.uppercase().trim()) }.getOrNull() else null
+            val rules = if (stage.isLocalSimulation) runCatching { symbolRulesProvider?.invoke(symbol.uppercase().trim()) }.getOrNull() else null
             db.withTransaction { placeInitialLimitLocked(context, symbol, direction, margin, leverage, intendedLimitPrice, sourceType = "MANUAL", sourceCycleId = null, rules = rules) }
         }
     }
@@ -70,6 +71,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
     }
 
     suspend fun processAll(context: Context, prices: Map<String, Double>) {
+        if (!stage.isLocalSimulation) return // Stage 2 uses Binance Demo API + sync; local simulation engine not used.
         if (prices.isEmpty()) return
         if (stage == TradingStage.STAGE_3) return // guarded; real sync/execution not implemented
         mutex.withLock {
@@ -109,7 +111,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         val profile = LeverageConfig.requireProfile(lev)
         val now = System.currentTimeMillis()
 
-        val effectiveRules = rules ?: if (stage.isSimulated) runCatching { symbolRulesProvider?.invoke(sym) }.getOrNull() else null
+        val effectiveRules = rules ?: if (stage.isLocalSimulation) runCatching { symbolRulesProvider?.invoke(sym) }.getOrNull() else null
         val price = effectiveRules?.roundPrice(intendedLimitPrice, java.math.RoundingMode.DOWN) ?: intendedLimitPrice
         if (!price.isFinite() || price <= 0.0) return EngineResult(false, "Invalid or non-tradable entry price for $sym after exchange filter rounding.")
         effectiveRules?.validatePrice(price)?.let { return EngineResult(false, "Price rejected by Binance filter simulation ($sym): $it") }
@@ -164,7 +166,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         val order = dao.getActiveOrdersForCycle(entry.cycleId).firstOrNull { it.entryId == entry.id && it.orderType == "ENTRY_LIMIT" }
         val fillPrice = trigger
         val rawQty = if (entry.quantity > 1e-12) entry.quantity else max((entry.margin * entry.leverage) / fillPrice, 0.0)
-        val rules = if (stage.isSimulated) runCatching { symbolRulesProvider?.invoke(entry.symbol) }.getOrNull() else null
+        val rules = if (stage.isLocalSimulation) runCatching { symbolRulesProvider?.invoke(entry.symbol) }.getOrNull() else null
         val qty = rules?.roundQty(rawQty, java.math.RoundingMode.DOWN) ?: rawQty
         if (qty <= 1e-12) return
         val fee = qty * fillPrice * feeRate
@@ -308,7 +310,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
             message = "Averaging trigger at ${fmt(roiPct)}% ROI: cancelled $cancelledCount pending entry order(s) for ${cycle.symbol} only. Unrelated orders/positions unchanged.", price = mark, dedupeKey = "avg-trig-cancel-${cycle.id}"))
 
         val dist = cycle.newEntryDistancePercent / 100.0
-        val rules = if (stage.isSimulated) runCatching { symbolRulesProvider?.invoke(cycle.symbol) }.getOrNull() else null
+        val rules = if (stage.isLocalSimulation) runCatching { symbolRulesProvider?.invoke(cycle.symbol) }.getOrNull() else null
         val longRaw = mark * (1.0 - dist)
         val shortRaw = mark * (1.0 + dist)
         val longPx = rules?.roundPrice(longRaw, java.math.RoundingMode.DOWN) ?: longRaw
@@ -327,7 +329,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
     private suspend fun placeAveragingEntryOrderLocked(cycle: PaperCycleEntity, direction: String, price: Double, now: Long, rules: com.ansardeo.binancebot.data.SymbolFilterRules? = null) {
         val margin = cycle.averagingMargin
         val lev = cycle.leverage
-        val effectiveRules = rules ?: if (stage.isSimulated) runCatching { symbolRulesProvider?.invoke(cycle.symbol) }.getOrNull() else null
+        val effectiveRules = rules ?: if (stage.isLocalSimulation) runCatching { symbolRulesProvider?.invoke(cycle.symbol) }.getOrNull() else null
         val px = effectiveRules?.roundPrice(price, if (direction == "LONG") java.math.RoundingMode.DOWN else java.math.RoundingMode.UP) ?: price
         if (!px.isFinite() || px <= 0.0) {
             dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "AVG_ORDER_SKIPPED",
@@ -398,7 +400,7 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
     private suspend fun createReentryPlansAfterTrailingLocked(context: Context, cycle: PaperCycleEntity, closedDirection: String, closePrice: Double, now: Long) {
         if (!cycle.reentryEnabled) return
         val dist = cycle.newEntryDistancePercent / 100.0
-        val rules = if (stage.isSimulated) runCatching { symbolRulesProvider?.invoke(cycle.symbol) }.getOrNull() else null
+        val rules = if (stage.isLocalSimulation) runCatching { symbolRulesProvider?.invoke(cycle.symbol) }.getOrNull() else null
         val longTrigger = rules?.roundPrice(closePrice * (1.0 - dist), java.math.RoundingMode.DOWN) ?: (closePrice * (1.0 - dist))
         val shortTrigger = rules?.roundPrice(closePrice * (1.0 + dist), java.math.RoundingMode.UP) ?: (closePrice * (1.0 + dist))
         // Exclude the source cycle being closed so same-side re-entry is not incorrectly blocked.

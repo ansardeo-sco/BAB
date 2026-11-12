@@ -14,15 +14,18 @@ import com.ansardeo.binancebot.data.*
 import com.ansardeo.binancebot.paper.PaperEngineProvider
 import com.ansardeo.binancebot.util.PriceFormatter
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * Standalone manual entry screen (LIMIT-only, spec-compliant). Stage 1/2 simulated only.
+ * Standalone manual entry screen (LIMIT-only). Stage 1 local simulation; Stage 2 Binance Futures Demo API.
  */
 class ManualEntryActivity : AppCompatActivity() {
     private val marketRepo = MarketRepository()
+    private val demoRepo = DemoStageRepository()
     private val handler = Handler(Looper.getMainLooper())
     private var refresh: Runnable? = null
     private var gen = 0L
@@ -146,19 +149,62 @@ class ManualEntryActivity : AppCompatActivity() {
             val s = stage()
             val lev = try { LeverageConfig.requireSupported(lev()) } catch (e: Exception) { toast(e.message ?: "Invalid leverage"); return }
             if (s == TradingStage.STAGE_3) { result.text = "Stage 3 is disabled; no real order submitted."; result.setTextColor(ContextCompat.getColor(this, R.color.red)); return }
-            val warn = "${s.shortLabel} is simulated. No real Binance order will be submitted."
+            val warn = when (s) {
+                TradingStage.STAGE_2 -> "Submits REAL LIMIT order to Binance USDⓈ-M Futures Demo (Demo credentials only)."
+                else -> "${s.shortLabel} is local simulation. No real Binance order will be submitted."
+            }
             AlertDialog.Builder(this).setTitle("Confirm $dir LIMIT Entry")
                 .setMessage("$symbol $dir @ ${PriceFormatter.formatPrice(intended)} LIMIT\nLive ${PriceFormatter.formatPrice(livePrice)}\nMargin ${PriceFormatter.formatUsdt(margin)} | ${lev}x\n$warn")
                 .setPositiveButton("CONFIRM") { _, _ ->
-                    setButtonsEnabled(false); result.setTextColor(muted); result.text = "Placing simulated $dir LIMIT entry..."
-                    lifecycleScope.launch {
-                        val eng = PaperEngineProvider.get(this@ManualEntryActivity, s).apply {
-                            symbolRulesProvider = { sym -> marketRepo.getCachedSymbolRules(sym) ?: marketRepo.getSymbolRules(sym).rules }
+                    setButtonsEnabled(false)
+                    if (s == TradingStage.STAGE_2) {
+                        result.setTextColor(muted); result.text = "Submitting $dir LIMIT order to Binance Futures Demo..."
+                        lifecycleScope.launch {
+                            try {
+                                val creds = DemoCredentialsStore.load(this@ManualEntryActivity)
+                                if (!creds.hasBoth) { result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, R.color.red)); result.text = "[X] Binance Demo API credentials not configured."; setButtonsEnabled(true); return@launch }
+                                val settings = runCatching { LocalCoinSettingsStore.load(this@ManualEntryActivity, symbol) }.getOrNull() ?: runCatching { LocalCoinSettingsStore.loadGlobal(this@ManualEntryActivity) }.getOrNull()
+                                if (dir == "LONG" && settings?.enabledLong == false) { result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, R.color.red)); result.text = "[X] LONG entries disabled."; setButtonsEnabled(true); return@launch }
+                                if (dir == "SHORT" && settings?.enabledShort == false) { result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, R.color.red)); result.text = "[X] SHORT entries disabled."; setButtonsEnabled(true); return@launch }
+                                val rules = marketRepo.getCachedSymbolRules(symbol) ?: marketRepo.getSymbolRules(symbol).rules
+                                val px = rules?.roundPrice(intended, RoundingMode.DOWN) ?: intended
+                                val qty = rules?.roundQty(if (px > 0) (margin * lev) / px else 0.0, RoundingMode.DOWN) ?: if (px > 0) (margin * lev) / px else 0.0
+                                if (qty <= 0.0 || px <= 0.0) { result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, R.color.red)); result.text = "[X] Invalid price/quantity after Binance filter rounding."; setButtonsEnabled(true); return@launch }
+                                rules?.validatePrice(px)?.let { result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, R.color.red)); result.text = "[X] $it"; setButtonsEnabled(true); return@launch }
+                                rules?.validateQty(qty)?.let { result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, R.color.red)); result.text = "[X] $it"; setButtonsEnabled(true); return@launch }
+                                rules?.validateNotional(px, qty)?.let { result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, R.color.red)); result.text = "[X] $it"; setButtonsEnabled(true); return@launch }
+                                val side = if (dir == "LONG") "BUY" else "SELL"
+                                val pxStr = BigDecimal.valueOf(px).stripTrailingZeros().toPlainString()
+                                val qtyStr = BigDecimal.valueOf(qty).stripTrailingZeros().toPlainString()
+                                val clientId = "bab-demo-manual-${System.currentTimeMillis()}-${(Math.random()*1_000_000).toInt()}"
+                                val apiRes = demoRepo.placeLimitOrder(this@ManualEntryActivity, symbol, side, qtyStr, pxStr, reduceOnly = false, clientOrderId = clientId)
+                                if (apiRes.ok) {
+                                    val d = apiRes.data
+                                    val oid = d?.optString("orderId") ?: d?.optLong("orderId")?.toString() ?: ""
+                                    val st = d?.optString("status") ?: "SUBMITTED"
+                                    DemoConnectionStore.save(this@ManualEntryActivity, "CONNECTED", "Last Demo order submitted")
+                                    result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, R.color.green))
+                                    result.text = "[OK] Binance Demo LIMIT submitted: $symbol $dir @ $pxStr qty $qtyStr (status=$st${if (oid.isNotBlank()) ", orderId=$oid" else ""})"
+                                } else {
+                                    DemoConnectionStore.save(this@ManualEntryActivity, "ERROR", apiRes.error ?: "Order submission failed")
+                                    result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, R.color.red))
+                                    result.text = "[X] Binance Demo order failed: ${apiRes.error ?: "Request failed"}"
+                                }
+                            } catch (_: Exception) {
+                                result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, R.color.red)); result.text = "[X] Binance Demo order submission failed."
+                            } finally { setButtonsEnabled(true) }
                         }
-                        val res = eng.openInitialLimit(this@ManualEntryActivity, symbol, dir, margin, lev, intended)
-                        setButtonsEnabled(true)
-                        result.text = if (res.ok) "[OK] ${res.message}" else "[X] ${res.message}"
-                        result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, if (res.ok) R.color.green else R.color.red))
+                    } else {
+                        result.setTextColor(muted); result.text = "Placing simulated $dir LIMIT entry..."
+                        lifecycleScope.launch {
+                            val eng = PaperEngineProvider.get(this@ManualEntryActivity, s).apply {
+                                symbolRulesProvider = { sym -> marketRepo.getCachedSymbolRules(sym) ?: marketRepo.getSymbolRules(sym).rules }
+                            }
+                            val res = eng.openInitialLimit(this@ManualEntryActivity, symbol, dir, margin, lev, intended)
+                            setButtonsEnabled(true)
+                            result.text = if (res.ok) "[OK] ${res.message}" else "[X] ${res.message}"
+                            result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, if (res.ok) R.color.green else R.color.red))
+                        }
                     }
                 }.setNegativeButton("CANCEL", null).show()
         }

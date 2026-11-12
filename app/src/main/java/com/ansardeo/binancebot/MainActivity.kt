@@ -20,6 +20,17 @@ import com.ansardeo.binancebot.BuildConfig
 import com.ansardeo.binancebot.data.*
 import com.ansardeo.binancebot.paper.PaperEngine
 import com.ansardeo.binancebot.paper.PaperEngineProvider
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import android.os.Environment
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.text.InputType
+import android.text.method.PasswordTransformationMethod
+import org.json.JSONObject
+import java.math.RoundingMode
+import java.math.BigDecimal
 import com.ansardeo.binancebot.paper.db.PaperCycleEntity
 import com.ansardeo.binancebot.paper.db.PaperCycleWithEntries
 import com.ansardeo.binancebot.paper.db.PaperDatabase
@@ -37,6 +48,7 @@ import java.util.Locale
 class MainActivity : AppCompatActivity() {
 
     private val marketRepo = MarketRepository()
+    private val demoRepo = DemoStageRepository()
     private val paperDb by lazy { PaperDatabase.get(this) }
     private fun stage() = StageStore.current(this)
     private fun engine(): PaperEngine = PaperEngineProvider.get(this, stage()).apply {
@@ -269,6 +281,20 @@ class MainActivity : AppCompatActivity() {
         fun renderWallet() {
             lifecycleScope.launch {
                 try {
+                    if (stage() == TradingStage.STAGE_2) {
+                        balSub.text = "Fetching Binance Futures Demo account..."
+                        val snap = demoRepo.fetchSnapshot(this@MainActivity)
+                        if (snap.ok) {
+                            val avail = snap.availableBalance ?: 0.0
+                            val total = snap.totalWalletBalance ?: avail
+                            balText.text = PriceFormatter.formatUsdt(total)
+                            balSub.text = "Available ${PriceFormatter.formatUsdt(avail)} | Positions: ${snap.positions.length()} | Open Orders: ${snap.openOrders.length()} | Algo: ${snap.openAlgoOrders.length()} (Binance Demo)"
+                        } else {
+                            balText.text = "-- USDT"
+                            balSub.text = snap.error ?: "Unable to load Binance Demo account. Configure credentials in Settings."
+                        }
+                        return@launch
+                    }
                     val w = engine().getWallet()
                     val active = paperDb.dao().getActiveCyclesWithEntries(stageId())
                     val prices = lastOverview?.symbols ?: emptyMap()
@@ -282,7 +308,7 @@ class MainActivity : AppCompatActivity() {
                     val equity = w.availableBalance + w.reservedMargin + unreal
                     balText.text = PriceFormatter.formatUsdt(equity)
                     balSub.text = "Available ${PriceFormatter.formatUsdt(w.availableBalance)} | Reserved ${PriceFormatter.formatUsdt(w.reservedMargin)} | Unrealized ${PriceFormatter.formatPnl(unreal)} | Realized ${PriceFormatter.formatPnl(w.realizedPnl)}"
-                } catch (_: Exception) { balSub.text = "Unable to load virtual wallet." }
+                } catch (_: Exception) { balSub.text = if (stage() == TradingStage.STAGE_2) "Unable to load Binance Demo wallet." else "Unable to load virtual wallet." }
             }
         }
 
@@ -551,21 +577,78 @@ class MainActivity : AppCompatActivity() {
             if (margin <= 0.0) { toast("Enter a valid margin"); return }
             val lev = try { LeverageConfig.requireSupported(selectedLev()) } catch (e: Exception) { toast(e.message ?: "Invalid leverage"); return }
             val s = stage()
-            val warn = if (s == TradingStage.STAGE_3) "STAGE 3 LIVE TRADING is disabled in this build. No real order will be placed." else "${s.shortLabel} is simulated. No real Binance order will be submitted."
+            val warn = when (s) {
+                TradingStage.STAGE_3 -> "STAGE 3 LIVE TRADING is disabled in this build. No real order will be placed."
+                TradingStage.STAGE_2 -> "Stage 2 submits a REAL LIMIT order to Binance USDⓈ-M Futures Demo. Use Demo credentials only. Order execution/state is confirmed by Binance."
+                else -> "${s.shortLabel} is local simulation. No real Binance order will be submitted."
+            }
             AlertDialog.Builder(this)
                 .setTitle("Confirm $dir LIMIT Entry")
                 .setMessage("Stage: ${s.title}\n$warn\n\n$sym $dir\nIntended LIMIT price: ${PriceFormatter.formatPrice(intended)}\nLive price: ${PriceFormatter.formatPrice(currentLivePrice)}\nMargin ${PriceFormatter.formatUsdt(margin)} | ${lev}x\n\nPlace this $dir LIMIT entry?")
                 .setPositiveButton("CONFIRM") { _, _ ->
                     if (s == TradingStage.STAGE_3) { result.setTextColor(red); result.text = "[X] Stage 3 is disabled by default and real order submission is not enabled in this build."; return@setPositiveButton }
-                    setButtonsEnabled(false); result.setTextColor(muted); result.text = "Placing simulated $dir LIMIT entry..."
-                    lifecycleScope.launch {
-                        val res = engine().openInitialLimit(this@MainActivity, sym, dir, margin, lev, intended)
-                        setButtonsEnabled(true)
-                        if (res.ok) {
-                            result.setTextColor(green); result.text = "[OK] ${res.message} (Cycle #${res.cycleId})"; toast("$dir LIMIT entry placed")
-                            runCatching { currentLivePrice?.let { engine().processAll(this@MainActivity, mapOf(sym to it)) } }
-                        } else {
-                            result.setTextColor(red); result.text = "[X] ${res.message}"
+                    setButtonsEnabled(false)
+                    if (s == TradingStage.STAGE_2) {
+                        result.setTextColor(muted); result.text = "Submitting $dir LIMIT order to Binance Futures Demo..."
+                        lifecycleScope.launch {
+                            try {
+                                val creds = DemoCredentialsStore.load(this@MainActivity)
+                                if (!creds.hasBoth) {
+                                    result.setTextColor(red); result.text = "[X] Binance Demo API credentials not configured in Settings."
+                                    setButtonsEnabled(true); return@launch
+                                }
+                                val settings = runCatching { LocalCoinSettingsStore.load(this@MainActivity, sym) }.getOrNull()
+                                    ?: runCatching { LocalCoinSettingsStore.loadGlobal(this@MainActivity) }.getOrNull()
+                                if (dir == "LONG" && settings?.enabledLong == false) { result.setTextColor(red); result.text = "[X] LONG entries disabled in settings."; setButtonsEnabled(true); return@launch }
+                                if (dir == "SHORT" && settings?.enabledShort == false) { result.setTextColor(red); result.text = "[X] SHORT entries disabled in settings."; setButtonsEnabled(true); return@launch }
+
+                                val rules = marketRepo.getCachedSymbolRules(sym) ?: marketRepo.getSymbolRules(sym).rules
+                                val px = rules?.roundPrice(intended, RoundingMode.DOWN) ?: intended
+                                val qtyRaw = if (px > 0) (margin * lev) / px else 0.0
+                                val qty = rules?.roundQty(qtyRaw, RoundingMode.DOWN) ?: qtyRaw
+                                if (qty <= 0.0 || px <= 0.0) {
+                                    result.setTextColor(red); result.text = "[X] Invalid price/quantity after Binance filter rounding."; setButtonsEnabled(true); return@launch
+                                }
+                                rules?.validatePrice(px)?.let { result.setTextColor(red); result.text = "[X] Price rejected: $it"; setButtonsEnabled(true); return@launch }
+                                rules?.validateQty(qty)?.let { result.setTextColor(red); result.text = "[X] Quantity rejected: $it"; setButtonsEnabled(true); return@launch }
+                                rules?.validateNotional(px, qty)?.let { result.setTextColor(red); result.text = "[X] Notional rejected: $it"; setButtonsEnabled(true); return@launch }
+
+                                val side = if (dir == "LONG") "BUY" else "SELL"
+                                val pxStr = BigDecimal.valueOf(px).stripTrailingZeros().toPlainString()
+                                val qtyStr = BigDecimal.valueOf(qty).stripTrailingZeros().toPlainString()
+                                val clientId = "bab-demo-${System.currentTimeMillis()}-${(Math.random()*1_000_000).toInt()}"
+                                val apiRes = demoRepo.placeLimitOrder(this@MainActivity, sym, side, qtyStr, pxStr, reduceOnly = false, clientOrderId = clientId)
+                                if (apiRes.ok) {
+                                    val d = apiRes.data
+                                    val oid = d?.optString("orderId") ?: d?.optLong("orderId")?.toString() ?: ""
+                                    val st = d?.optString("status") ?: "SUBMITTED"
+                                    DemoConnectionStore.save(this@MainActivity, "CONNECTED", "Last Demo order submitted")
+                                    result.setTextColor(green)
+                                    result.text = "[OK] Binance Demo LIMIT submitted: $sym $dir @ $pxStr qty $qtyStr (status=$st${if (oid.isNotBlank()) ", orderId=$oid" else ""}). Confirm state in Binance Demo/Open Orders."
+                                    toast("Demo LIMIT order submitted")
+                                } else {
+                                    DemoConnectionStore.save(this@MainActivity, "ERROR", apiRes.error ?: "Order submission failed")
+                                    result.setTextColor(red)
+                                    result.text = "[X] Binance Demo order failed: ${apiRes.error ?: "Request failed"}${apiRes.code?.let { " (code $it)" } ?: ""}"
+                                }
+                            } catch (_: Exception) {
+                                DemoConnectionStore.save(this@MainActivity, "ERROR", "Order submission failed")
+                                result.setTextColor(red); result.text = "[X] Binance Demo order submission failed."
+                            } finally {
+                                setButtonsEnabled(true)
+                            }
+                        }
+                    } else {
+                        result.setTextColor(muted); result.text = "Placing simulated $dir LIMIT entry..."
+                        lifecycleScope.launch {
+                            val res = engine().openInitialLimit(this@MainActivity, sym, dir, margin, lev, intended)
+                            setButtonsEnabled(true)
+                            if (res.ok) {
+                                result.setTextColor(green); result.text = "[OK] ${res.message} (Cycle #${res.cycleId})"; toast("$dir LIMIT entry placed")
+                                runCatching { currentLivePrice?.let { engine().processAll(this@MainActivity, mapOf(sym to it)) } }
+                            } else {
+                                result.setTextColor(red); result.text = "[X] ${res.message}"
+                            }
                         }
                     }
                 }.setNegativeButton("CANCEL", null).show()
@@ -652,9 +735,104 @@ class MainActivity : AppCompatActivity() {
                 }.also { subBar.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
             }
         }
+        fun renderDemoSnapshot(body: LinearLayout, snap: DemoStageRepository.DemoSnapshot) {
+            body.removeAllViews()
+            if (!snap.ok) {
+                body.addView(text(snap.error ?: "Unable to load Binance Demo data. Configure credentials and test connection in Settings.", 13f, red))
+                return
+            }
+            fun renderJsonArray(title: String, arr: org.json.JSONArray, max: Int = 40, filterNonZeroPosition: Boolean = false) {
+                val card = makeItemCard(body)
+                var shown = 0
+                card.addView(text(title, 14f, yellow, true))
+                addSpace(card, 4)
+                for (i in 0 until arr.length()) {
+                    if (shown >= max) break
+                    val o = arr.optJSONObject(i) ?: continue
+                    if (filterNonZeroPosition) {
+                        val amt = o.optString("positionAmt", "0").toDoubleOrNull() ?: 0.0
+                        if (kotlin.math.abs(amt) <= 1e-12) continue
+                    }
+                    val sym = o.optString("symbol", "")
+                    val side = o.optString("positionSide", o.optString("side", ""))
+                    val amt = o.optString("positionAmt", o.optString("origQty", o.optString("executedQty", "")))
+                    val px = o.optString("entryPrice", o.optString("price", o.optString("avgPrice", "")))
+                    val st = o.optString("status", o.optString("algoStatus", ""))
+                    val typ = o.optString("type", o.optString("orderType", ""))
+                    val pnl = o.optString("unRealizedProfit", o.optString("unrealizedProfit", ""))
+                    val line = buildString {
+                        if (sym.isNotBlank()) append(sym)
+                        if (side.isNotBlank()) append(" ").append(side)
+                        if (typ.isNotBlank()) append(" ").append(typ)
+                        if (amt.isNotBlank() && amt != "0" && amt != "0.0" && amt != "0.00000000") append("  qty=").append(amt)
+                        if (px.isNotBlank() && px != "0" && px != "0.0" && px != "0.00000") append("  px=").append(px)
+                        if (st.isNotBlank()) append("  [").append(st).append("]")
+                        if (pnl.isNotBlank() && pnl != "0" && pnl != "0.0" && pnl != "0.00000000") append("  uPnL=").append(pnl)
+                    }.ifBlank { o.toString().take(200) }
+                    card.addView(text(line, 11f, white))
+                    addSpace(card, 3)
+                    shown++
+                }
+                if (shown == 0) card.addView(text("None", 12f, muted))
+            }
+
+            val info = makeItemCard(body)
+            info.addView(text("Binance Futures Demo (actual account data)", 14f, yellow, true))
+            addSpace(info, 4)
+            addLabel(info, "Total Wallet Balance", snap.totalWalletBalance?.let { "${PriceFormatter.formatUsdt(it)} USDT" } ?: "--", green, true)
+            addLabel(info, "Available Balance", snap.availableBalance?.let { "${PriceFormatter.formatUsdt(it)} USDT" } ?: "--", white, true)
+            addLabel(info, "Open Orders", "${snap.openOrders.length()}", white)
+            addLabel(info, "Open Algo Orders", "${snap.openAlgoOrders.length()}", white)
+            addLabel(info, "Synced", DemoStageRepository.formatTs(snap.fetchedAt), muted)
+
+            when (primaryTab) {
+                0 -> {
+                    if (positionSub == 0) renderJsonArray("Positions (non-zero)", snap.positions, filterNonZeroPosition = true)
+                    else {
+                        val c = makeItemCard(body)
+                        c.addView(text("Account", 14f, yellow, true)); addSpace(c, 4)
+                        c.addView(text("Wallet/available balance and position/order counts shown above are retrieved from Binance Futures Demo API. Stage 1 local simulation data is separate.", 12f, muted))
+                    }
+                }
+                1 -> {
+                    if (orderSub == 0) renderJsonArray("Open Orders", snap.openOrders) else renderJsonArray("Open Algo/Conditional Orders", snap.openAlgoOrders)
+                    if (orderSub == 2) {
+                        val c = makeItemCard(body); c.addView(text("SL/TP visibility depends on Binance order/algo representation. App-managed trailing/strategy automation sync is limited in this build.", 12f, muted))
+                    }
+                }
+                else -> {
+                    val note = makeItemCard(body)
+                    note.addView(text("History / Fills (Binance Demo)", 14f, yellow, true))
+                    addSpace(note, 4)
+                    note.addView(text("Authoritative executed fills and close history for Stage 2 are on Binance Demo. Full in-app sync/reconciliation of trade/fill history is not yet implemented; local Stage 1 history remains separate.", 12f, muted))
+                }
+            }
+        }
+
         fun render() {
             lifecycleScope.launch {
                 try {
+                    if (stage() == TradingStage.STAGE_2) {
+                        subBar.visibility = View.VISIBLE
+                        // Simple tabs for demo: Position/Open Orders/History
+                        stylePrimary(0, 0, 0)
+                        when (primaryTab) {
+                            0 -> styleSub(listOf("Positions", "Account"))
+                            1 -> styleSub(listOf("Open Orders", "Algo Orders"))
+                            2 -> styleSub(listOf("History", "Info"))
+                        }
+                        val snap = demoRepo.fetchSnapshot(this@MainActivity)
+                        // Adjust counts in labels best-effort
+                        val posCount = (0 until snap.positions.length()).count { i ->
+                            val a = snap.positions.optJSONObject(i)?.optString("positionAmt")?.toDoubleOrNull() ?: 0.0
+                            kotlin.math.abs(a) > 1e-12
+                        }
+                        val ordCount = snap.openOrders.length() + snap.openAlgoOrders.length()
+                        stylePrimary(if (snap.ok) posCount else 0, if (snap.ok) ordCount else 0, 0)
+                        renderDemoSnapshot(body, snap)
+                        return@launch
+                    }
+
                     val dao = paperDb.dao(); val sid = stageId()
                     val ov = (lastOverview ?: runCatching { marketRepo.getOverview().also { lastOverview = it } }.getOrNull())
                     val prices = ov?.symbols ?: emptyMap()
@@ -720,7 +898,7 @@ class MainActivity : AppCompatActivity() {
                         2 -> if (historySub == 0) renderHistoryFills(body, fillRecords) else renderHistoryCloses(body, history)
                     }
                 } catch (e: Exception) {
-                    body.removeAllViews(); body.addView(text("Unable to load", 12f, red))
+                    body.removeAllViews(); body.addView(text("Unable to load: ${e.message?.take(60) ?: ""}", 12f, red))
                 }
             }
         }
@@ -1077,6 +1255,117 @@ class MainActivity : AppCompatActivity() {
                 msg.setTextColor(green); msg.text = "Saved. Percentages are fixed by leverage ${lev}x."; toast("Settings saved")
             } catch (e: Exception) { msg.setTextColor(red); msg.text = e.message ?: "Save failed" }
         }
+
+        // ---- Binance Demo API Configuration (Stage 2 only) ----
+        val demoCard = addCard(root, "BINANCE DEMO API CONFIGURATION", "Stage 2 only: Binance USDⓈ-M Futures Demo (https://demo-fapi.binance.com). Credentials are encrypted on-device (Android Keystore-backed). Never used for Live Trading.")
+        val creds = DemoCredentialsStore.load(this)
+        val statusLabel = text("", 12f, muted, true)
+        fun refreshDemoStatus() {
+            val st = DemoConnectionStore.status(this)
+            val m = DemoConnectionStore.message(this)
+            val ts = DemoConnectionStore.checkedAt(this)
+            val color = when (st) { "CONNECTED" -> green; "ERROR" -> red; else -> muted }
+            statusLabel.setTextColor(color)
+            statusLabel.text = "Status: $st${if (m.isNotBlank()) " — $m" else ""}${if (ts > 0) " (${DemoStageRepository.formatTs(ts)})" else ""}"
+        }
+        demoCard.addView(statusLabel); addSpace(demoCard, 6)
+
+        fun mkSecretInput(label: String, initial: String): Pair<EditText, Switch> {
+            demoCard.addView(text(label, 12f, muted, true))
+            val et = EditText(this).apply {
+                setText(initial); setTextColor(white); setHintTextColor(muted); setBackgroundColor(inputBg)
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                transformationMethod = PasswordTransformationMethod.getInstance()
+            }
+            demoCard.addView(et, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(4) })
+            val sw = Switch(this).apply { text = "Show"; isChecked = false; setTextColor(muted) }
+            sw.setOnCheckedChangeListener { _, checked ->
+                val sel = et.selectionStart
+                if (checked) { et.transformationMethod = null; et.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD }
+                else { et.transformationMethod = PasswordTransformationMethod.getInstance(); et.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
+                et.setSelection(maxOf(0, sel))
+            }
+            demoCard.addView(sw); addSpace(demoCard, 6)
+            return et to sw
+        }
+        val (apiKeyEt, _) = mkSecretInput("Demo API Key", creds.apiKey)
+        val (secretEt, _) = mkSecretInput("Demo Secret Key", creds.secretKey)
+        val demoMsg = text("", 12f, muted); demoCard.addView(demoMsg); addSpace(demoCard, 4)
+
+        val rowBtns = row()
+        fun smallBtn(t: String, bgc: Int): TextView = TextView(this).apply {
+            text = t; setTextColor(if (bgc == yellow) 0xFF000000.toInt() else white); setTypeface(typeface, Typeface.BOLD)
+            textSize = 11f; gravity = Gravity.CENTER; setPadding(dp(10), dp(10), dp(10), dp(10)); background = rounded(bgc, 10)
+            layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) }
+        }
+        val saveBtn = smallBtn("SAVE / UPDATE", green)
+        val delBtn = smallBtn("DELETE / CLEAR", red)
+        val testBtn = smallBtn("TEST CONNECTION", yellow)
+        rowBtns.addView(saveBtn); rowBtns.addView(delBtn); rowBtns.addView(testBtn.apply { (layoutParams as LinearLayout.LayoutParams).marginEnd = 0 })
+        demoCard.addView(rowBtns)
+
+        saveBtn.setOnClickListener {
+            val ak = apiKeyEt.text.toString().trim()
+            val sk = secretEt.text.toString().trim()
+            if (ak.isBlank() || sk.isBlank()) { demoMsg.setTextColor(red); demoMsg.text = "Enter both Demo API Key and Secret Key."; return@setOnClickListener }
+            val ok = DemoCredentialsStore.save(this, ak, sk)
+            if (ok) {
+                DemoConnectionStore.save(this, "DISCONNECTED", "Credentials saved. Run Test Connection.")
+                demoMsg.setTextColor(green); demoMsg.text = "Demo credentials saved securely on this device (Stage 2 only)."
+                toast("Demo credentials saved")
+            } else {
+                demoMsg.setTextColor(red); demoMsg.text = "Failed to save credentials securely."
+            }
+            refreshDemoStatus()
+        }
+        delBtn.setOnClickListener {
+            AlertDialog.Builder(this).setTitle("Delete Demo Credentials")
+                .setMessage("Remove stored Binance Futures Demo API credentials from this device?")
+                .setPositiveButton("DELETE") { _, _ ->
+                    DemoCredentialsStore.clear(this); DemoConnectionStore.clear(this)
+                    apiKeyEt.setText(""); secretEt.setText("")
+                    demoMsg.setTextColor(yellow); demoMsg.text = "Demo credentials cleared."
+                    refreshDemoStatus(); toast("Demo credentials cleared")
+                }.setNegativeButton("CANCEL", null).show()
+        }
+        testBtn.setOnClickListener {
+            val ak = apiKeyEt.text.toString().trim().ifBlank { DemoCredentialsStore.load(this).apiKey }
+            val sk = secretEt.text.toString().trim().ifBlank { DemoCredentialsStore.load(this).secretKey }
+            if (ak.isBlank() || sk.isBlank()) { demoMsg.setTextColor(red); demoMsg.text = "Save Demo credentials first."; return@setOnClickListener }
+            demoMsg.setTextColor(muted); demoMsg.text = "Testing Binance Futures Demo connection..."
+            lifecycleScope.launch {
+                val res = demoRepo.testConnection(this@MainActivity)
+                if (res.ok) { demoMsg.setTextColor(green); demoMsg.text = "Connected to Binance Futures Demo." }
+                else { demoMsg.setTextColor(red); demoMsg.text = "Connection failed: ${res.error ?: "Unable to connect"}" }
+                refreshDemoStatus()
+            }
+        }
+        refreshDemoStatus()
+
+        // ---- Save APK ----
+        val apkCard = addCard(root, "SAVE APK", "Save a copy of the currently installed app APK to device storage. Does not change trading settings or account data.")
+        val apkMsg = text("", 12f, muted); apkCard.addView(apkMsg)
+        addButton(apkCard, "SAVE APK COPY", yellow).setOnClickListener {
+            val res = saveInstalledApkCopy()
+            if (res.first) { apkMsg.setTextColor(green); apkMsg.text = "Saved APK: ${res.second}"; toast("APK saved") }
+            else { apkMsg.setTextColor(red); apkMsg.text = "Save failed: ${res.second}" }
+        }
+    }
+
+    private fun saveInstalledApkCopy(): Pair<Boolean, String> {
+        return try {
+            val src = File(applicationInfo.sourceDir)
+            if (!src.exists()) return false to "Installed APK source not found"
+            val outDir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
+            if (!outDir.exists()) outDir.mkdirs()
+            val name = "BAB-Stage2-v${BuildConfig.VERSION_NAME}-${BuildConfig.VERSION_CODE}.apk"
+            val out = File(outDir, name)
+            FileInputStream(src).use { input -> FileOutputStream(out).use { output -> input.copyTo(output) } }
+            true to out.absolutePath
+        } catch (e: Exception) {
+            false to (e.message?.take(120) ?: "Unable to save APK")
+        }
     }
 
 
@@ -1085,13 +1374,13 @@ class MainActivity : AppCompatActivity() {
         val root = pageContainer()
         root.addView(text("More", 23f, white, true))
         root.addView(text("BAB system status, wallet, and safety information", 12f, muted))
-        val phases = addCard(root, "TRADING STAGES (INDEPENDENT)", "Stage data is isolated. Stage 1/2 never submit real Binance orders.")
+        val phases = addCard(root, "TRADING STAGES (INDEPENDENT)", "Stage data is isolated. Stage 3 remains disabled; Stage 2 uses Binance Futures Demo credentials only.")
         TradingStage.entries.forEach { stg ->
             val active = stage() == stg
             val desc = when (stg) {
-                TradingStage.STAGE_1 -> "Live USDT-M prices + virtual 100 USDT. Simulated execution only."
-                TradingStage.STAGE_2 -> "Demo environment scaffold (LOCAL SIMULATION ONLY): virtual wallet/orders/positions/history in-app. Binance Demo API is not connected and no real Demo orders are submitted."
-                TradingStage.STAGE_3 -> "Live Binance USDT-M (scaffold). Disabled by default. This build does not submit real orders."
+                TradingStage.STAGE_1 -> "Live USDT-M prices + local virtual 100 USDT. Simulated execution only (no authenticated Binance orders)."
+                TradingStage.STAGE_2 -> "Binance USDⓈ-M Futures Demo (https://demo-fapi.binance.com). Actual Demo account/wallet/orders/positions when configured; LIMIT orders submitted to Binance Demo. Stage 1 local simulation state is separate."
+                TradingStage.STAGE_3 -> "Live Binance USDT-M (scaffold). Disabled by default and isolated. No live trading in this build."
             }
             addSpace(phases, 6)
             phases.addView(text("${stg.title}${if (active) " - ACTIVE" else ""}", 13f, if (active && stg!=TradingStage.STAGE_3) green else if (active) red else muted, true))
@@ -1100,17 +1389,31 @@ class MainActivity : AppCompatActivity() {
         val info = addCard(root, "SYSTEM INFORMATION")
         addLabel(info, "Application", "BAB - Binance Android Bot")
         addLabel(info, "Version", BuildConfig.VERSION_NAME)
-        addLabel(info, "Stage 1/2 Orders", "SIMULATED ONLY (no real Binance orders)", green)
+        addLabel(info, "Stage 1 Orders", "SIMULATED ONLY (no authenticated Binance orders)", green)
+        addLabel(info, "Stage 2 Orders", "Binance USDⓈ-M Futures Demo API (Demo credentials only)", yellow)
         addLabel(info, "Stage 3 Live", "DISABLED BY DEFAULT", red)
         addLabel(info, "Market Data", "Binance public USDT-M endpoints (read-only)", muted)
+        if (stage() == TradingStage.STAGE_2) {
+            addLabel(info, "Demo Connection", DemoConnectionStore.status(this), if (DemoConnectionStore.status(this)=="CONNECTED") green else if (DemoConnectionStore.status(this)=="ERROR") red else muted)
+            addLabel(info, "Demo Credentials", if (DemoCredentialsStore.hasCredentials(this)) "Configured (encrypted on-device)" else "Not configured", if (DemoCredentialsStore.hasCredentials(this)) green else red)
+        }
 
         val s = stage()
-        if (s != TradingStage.STAGE_3) {
+        if (s == TradingStage.STAGE_1) {
             addButton(addCard(root, "WALLET (${s.shortLabel})"), "RESET ${s.shortLabel} VIRTUAL WALLET TO 100 USDT", 0xFF3A2E16.toInt()).setOnClickListener {
                 AlertDialog.Builder(this).setTitle("Reset ${s.shortLabel} wallet?")
                     .setMessage("Resets ${s.shortLabel} simulated balance to 100.0000 USDT.")
                     .setPositiveButton("RESET") { _, _ -> lifecycleScope.launch { engine().resetDemo(); toast("${s.shortLabel} wallet reset"); showPage("More") } }
                     .setNegativeButton("CANCEL", null).show()
+            }
+        } else if (s == TradingStage.STAGE_2) {
+            addButton(addCard(root, "BINANCE DEMO (STAGE 2)"), "SYNC DEMO ACCOUNT / ORDERS / POSITIONS", yellow).setOnClickListener {
+                lifecycleScope.launch {
+                    toast("Syncing Binance Futures Demo...")
+                    val snap = demoRepo.fetchSnapshot(this@MainActivity)
+                    toast(if (snap.ok) "Demo data synced" else (snap.error ?: "Sync failed"))
+                    showPage("More")
+                }
             }
         } else {
             addCard(root, "STAGE 3 LIVE TRADING").addView(text("Live Trading is disabled by default. Real Binance order submission is not enabled in this build. No credentials are stored in code.", 12f, red))
