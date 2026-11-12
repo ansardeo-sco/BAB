@@ -607,6 +607,7 @@ class MainActivity : AppCompatActivity() {
         var primaryTab = 0 // 0 Position, 1 Open Order, 2 History
         var positionSub = 0 // 0 Open, 1 Closed
         var orderSub = 0 // 0 Basic, 1 Conditional
+        var historySub = 0 // 0 Fills, 1 Closes
         lateinit var primaryViews: List<TextView>
         lateinit var subViews: List<TextView>
 
@@ -622,7 +623,11 @@ class MainActivity : AppCompatActivity() {
         fun styleSub(a: String, b: String) {
             val labels = listOf(a, b)
             subViews.forEachIndexed { i, tv ->
-                val sel = if (primaryTab == 0) i == positionSub else i == orderSub
+                val sel = when (primaryTab) {
+                    0 -> i == positionSub
+                    1 -> i == orderSub
+                    else -> i == historySub
+                }
                 tv.text = labels[i]
                 tv.setTextColor(if (sel) yellow else muted)
                 tv.setTypeface(null, if (sel) Typeface.BOLD else Typeface.NORMAL)
@@ -658,7 +663,16 @@ class MainActivity : AppCompatActivity() {
                     val protectiveSlOrders = allOrders.filter { it.orderType == "ENTRY_SL" }
                     val reentries = dao.getPendingReentryPlans(sid).filter { it.status !in listOf("EXECUTED","CANCELLED","FAILED") }
                     val history = dao.getHistoryCloses(sid, 500)
-                    val orderHistory = dao.getCompletedOrders(sid, 300)
+                    // Executed entry fills (actual fills) for Fills subsection
+                    val fillRecords = mutableListOf<Pair<PaperCycleEntity, PaperEntryEntity>>()
+                    for (c in cyclesAll) {
+                        val entries = dao.getEntries(c.id)
+                        for (e in entries) {
+                            val filled = e.filledAt != null || e.fillPrice != null || e.filledQuantity > 1e-12 || e.status == "FILLED" || e.status == "CLOSED"
+                            if (filled) fillRecords.add(c to e)
+                        }
+                    }
+                    fillRecords.sortByDescending { (c, e) -> e.filledAt ?: e.updatedAt ?: e.createdAt ?: c.updatedAt }
                     // Conditional opposite triggers (awaiting averaging execution)
                     val conditionalOpposites = cyclesAll.filter { c ->
                         c.oppositeEnabled && !c.oppositeDone && c.status in listOf("PENDING_ENTRY","ACTIVE","CLOSING") &&
@@ -668,16 +682,19 @@ class MainActivity : AppCompatActivity() {
                     val trailingConditionalCount = openPositionCount // one trailing stop per open entry
                     val basicCount = openEntryOrders.size + reentries.size
                     val conditionalCount = trailingConditionalCount + protectiveSlOrders.size + conditionalOpposites.size
-                    val historyCount = history.size + orderHistory.size
+                    val historyCount = fillRecords.size + history.size
                     stylePrimary(openPositionCount, basicCount, historyCount)
-                    subBar.visibility = if (primaryTab == 2) View.GONE else View.VISIBLE
-                    if (primaryTab == 0) styleSub("Open ($openPositionCount)", "Closed (${history.size})")
-                    else if (primaryTab == 1) styleSub("Basic ($basicCount)", "Conditional ($conditionalCount)")
+                    subBar.visibility = View.VISIBLE
+                    when (primaryTab) {
+                        0 -> styleSub("Open ($openPositionCount)", "Closed (${history.size})")
+                        1 -> styleSub("Basic ($basicCount)", "Conditional ($conditionalCount)")
+                        2 -> styleSub("Fills (${fillRecords.size})", "Closes (${history.size})")
+                    }
                     body.removeAllViews()
                     when (primaryTab) {
                         0 -> if (positionSub == 0) renderPositionsOpen(body, openPositions, prices, priceState) else renderPositionsClosed(body, history)
                         1 -> if (orderSub == 0) renderOrdersBasic(body, openEntryOrders, reentries, prices, priceState) else renderOrdersConditional(body, openPositions, protectiveSlOrders, conditionalOpposites, cycleById, prices, priceState)
-                        2 -> renderHistoryPrimary(body, history, orderHistory)
+                        2 -> if (historySub == 0) renderHistoryFills(body, fillRecords) else renderHistoryCloses(body, history)
                     }
                 } catch (e: Exception) {
                     body.removeAllViews(); body.addView(text("Unable to load", 12f, red))
@@ -690,7 +707,11 @@ class MainActivity : AppCompatActivity() {
         }
         subViews = listOf("A","B").mapIndexed { i, _ ->
             TextView(this).apply { gravity = Gravity.CENTER; setPadding(dp(8), dp(8), dp(8), dp(8)); textSize = 11f; setOnClickListener {
-                if (primaryTab == 0) { if (positionSub != i) { positionSub = i; render() } } else if (primaryTab == 1) { if (orderSub != i) { orderSub = i; render() } }
+                when (primaryTab) {
+                    0 -> if (positionSub != i) { positionSub = i; render() }
+                    1 -> if (orderSub != i) { orderSub = i; render() }
+                    2 -> if (historySub != i) { historySub = i; render() }
+                }
             } }.also { subBar.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
         }
         stylePrimary(0,0,0); styleSub("Open","Closed"); render()
@@ -784,12 +805,11 @@ class MainActivity : AppCompatActivity() {
             if (showAvg) addLabel(box, "Average Entry Price", PriceFormatter.formatPrice(avg), white, true)
             addLabel(box, "Position Quantity", PriceFormatter.formatQty(entryQty), white, true)
             addLabel(box, "Margin", PriceFormatter.formatUsdt(entryMargin) + " USDT", white, true)
-            val tsValue = when {
-                e.trailingStopPrice != null -> PriceFormatter.formatPrice(e.trailingStopPrice)
-                e.trailingActivated -> "Active"
-                else -> "Waiting (not activated)"
+            val activationPrice = trailingActivationPriceFor(e)
+            addLabel(box, "Activation Price", activationPrice?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+            if (e.trailingActivated && e.trailingStopPrice != null) {
+                addLabel(box, "Current Trailing Stop Price", PriceFormatter.formatPrice(e.trailingStopPrice), yellow, true)
             }
-            addProminentLabel(box, "Trailing Stop Price", tsValue, yellow)
             addLabel(box, "Activation", "${PriceFormatter.formatPercent(e.trailingActivationPercent)}", white, true)
             addLabel(box, "Callback Rate", "${PriceFormatter.formatPercent(e.trailingCallbackPercent)}", white, true)
             addLabel(box, "Entry Stop Loss", PriceFormatter.formatPrice(e.slPrice), red, true)
@@ -934,60 +954,45 @@ class MainActivity : AppCompatActivity() {
         if (!any) body.addView(text("No conditional orders.", 13f, muted))
     }
 
-    private fun renderHistoryPrimary(body: LinearLayout, history: List<PaperHistoryCloseEntity>, orderHistory: List<PaperOrderEntity>) {
-        if (history.isEmpty() && orderHistory.isEmpty()) { body.addView(text("No history.", 13f, muted)); return }
-        val tf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
-
-        if (history.isNotEmpty()) {
-            body.addView(text("Position History", 13f, yellow, true))
-            addSpace(body, 6)
-            for (h in history) {
-                val box = makeItemCard(body)
-                val header = row()
-                header.addView(text("${h.symbol} ${h.direction}", 15f, if (h.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
-                header.addView(text(h.closingReason, 12f, when (h.closingReason) { "TP", "TRAILING_STOP" -> green; "SL","LIQUIDATION" -> red; else -> white }, true))
-                box.addView(header)
-                addLabel(box, "Entry Price", PriceFormatter.formatPrice(h.entryFillPrice), white, true)
-                addLabel(box, "Exit Price", PriceFormatter.formatPrice(h.exitFillPrice), white, true)
-                addLabel(box, "Quantity", PriceFormatter.formatQty(h.closedQuantity))
-                addLabel(box, "Margin / Leverage", "${PriceFormatter.formatUsdt(h.entryMargin)} USDT / ${h.leverage}x")
-                addLabel(box, "Realized PNL", "${PriceFormatter.formatPnl(h.realizedPnlUsdt)} USDT (${PriceFormatter.formatPercent(h.realizedPnlPercent)})", pnlColor(h.realizedPnlUsdt), true)
-                addLabel(box, "Entry Time", tf.format(java.util.Date(h.entryTimestamp)))
-                addLabel(box, "Exit Time", tf.format(java.util.Date(h.exitTimestamp)))
+    private fun renderHistoryFills(body: LinearLayout, fills: List<Pair<PaperCycleEntity, PaperEntryEntity>>) {
+        if (fills.isEmpty()) { body.addView(text("No fills.", 13f, muted)); return }
+        for ((c, e) in fills) {
+            val box = makeItemCard(body)
+            val header = row()
+            header.addView(text("${c.symbol} ${e.direction}", 15f, if (e.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+            val status = when {
+                e.status == "FILLED" || e.status == "CLOSED" || e.filledAt != null -> "FILLED"
+                else -> e.status
             }
-            addSpace(body, 8)
+            header.addView(text(status, 12f, if (status == "FILLED") green else muted, true))
+            box.addView(header)
+            addLabel(box, "Fill Price", PriceFormatter.formatPrice(e.fillPrice), white, true)
+            val execQty = if (e.filledQuantity > 1e-12) e.filledQuantity else e.quantity
+            addLabel(box, "Executed Quantity", if (execQty > 1e-12) PriceFormatter.formatQty(execQty) else "--", white, true)
+            addLabel(box, "Margin", "${PriceFormatter.formatUsdt(e.margin)} USDT", white, true)
+            addLabel(box, "Leverage", "${e.leverage}x", white, true)
+            addLabel(box, "Execution Time", fmtDateTime(e.filledAt ?: e.updatedAt), muted)
+            if (e.entryType.isNotBlank()) addLabel(box, "Entry Type", e.entryType.replace('_', ' '), muted)
         }
+    }
 
-        if (orderHistory.isNotEmpty()) {
-            body.addView(text("Order History", 13f, yellow, true))
-            addSpace(body, 6)
-            for (o in orderHistory) {
-                val status = when {
-                    o.status == "FILLED" -> "FILLED"
-                    o.status == "ACTIVE" -> "NEW"
-                    o.status == "CANCELLING" -> "CANCELLING"
-                    o.status == "CANCELLED" || o.status == "CANCEL_VERIFIED" -> "CANCELLED"
-                    o.status == "REJECTED" || o.status == "FAILED" -> "REJECTED"
-                    o.status == "PARTIALLY_FILLED" || (o.filledQuantity > 1e-12 && o.quantity > 1e-12 && o.filledQuantity + 1e-12 < o.quantity) -> "PARTIALLY FILLED"
-                    else -> o.status
-                }
-                // Skip items that are not truly completed/executed history records in a confusing way
-                if (status == "NEW" || status == "CANCELLING") continue
-                val box = makeItemCard(body)
-                val header = row()
-                header.addView(text("${o.symbol} ${o.direction}", 15f, if (o.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
-                header.addView(text(status, 12f, when (status) { "FILLED" -> green; "PARTIALLY FILLED" -> yellow; "CANCELLED" -> muted; "REJECTED" -> red; else -> white }, true))
-                box.addView(header)
-                addLabel(box, "Order Type", when (o.orderType) { "ENTRY_LIMIT" -> "LIMIT"; "ENTRY_SL" -> "STOP LOSS"; else -> o.orderType }, yellow, true)
-                addLabel(box, "Order ID", o.exchangeOrderId ?: o.clientOrderId, muted)
-                addLabel(box, "Trigger / Limit Price", PriceFormatter.formatPrice(if (o.limitPrice != null && o.limitPrice > 0) o.limitPrice else o.triggerPrice), white, true)
-                val qtyText = if (o.quantity > 1e-12) PriceFormatter.formatQty(o.quantity) else if (o.filledQuantity > 1e-12) PriceFormatter.formatQty(o.filledQuantity) else "--"
-                addLabel(box, "Order Quantity", qtyText, white, true)
-                if (o.filledQuantity > 1e-12) addLabel(box, "Filled Quantity", PriceFormatter.formatQty(o.filledQuantity), white, true)
-                if (o.filledPrice != null) addLabel(box, "Average Fill Price", PriceFormatter.formatPrice(o.filledPrice), white, true)
-                addLabel(box, "Created At", fmtDateTime(o.createdAt), muted)
-                addLabel(box, "Updated At", fmtDateTime(o.executedAt ?: o.updatedAt), muted)
-            }
+    private fun renderHistoryCloses(body: LinearLayout, history: List<PaperHistoryCloseEntity>) {
+        if (history.isEmpty()) { body.addView(text("No closes.", 13f, muted)); return }
+        val tf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+        for (h in history) {
+            val box = makeItemCard(body)
+            val header = row()
+            header.addView(text("${h.symbol} ${h.direction}", 15f, if (h.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(text(h.closingReason, 12f, when (h.closingReason) { "TP", "TRAILING_STOP" -> green; "SL","LIQUIDATION" -> red; else -> white }, true))
+            box.addView(header)
+            addLabel(box, "Closing Price", PriceFormatter.formatPrice(h.exitFillPrice), white, true)
+            addLabel(box, "Closed Quantity", PriceFormatter.formatQty(h.closedQuantity), white, true)
+            addLabel(box, "Realized PNL", "${PriceFormatter.formatPnl(h.realizedPnlUsdt)} USDT", pnlColor(h.realizedPnlUsdt), true)
+            addLabel(box, "ROI", "${PriceFormatter.formatPercent(h.realizedPnlPercent)}", pnlColor(h.realizedPnlPercent), true)
+            addLabel(box, "Closing Reason", h.closingReason.replace('_', ' '), if (h.closingReason == "TRAILING_STOP") green else white, true)
+            addLabel(box, "Closing Time", tf.format(java.util.Date(h.exitTimestamp)), muted)
+            addLabel(box, "Entry Price", PriceFormatter.formatPrice(h.entryFillPrice), muted, true)
+            addLabel(box, "Margin / Leverage", "${PriceFormatter.formatUsdt(h.entryMargin)} USDT / ${h.leverage}x", muted)
         }
     }
 

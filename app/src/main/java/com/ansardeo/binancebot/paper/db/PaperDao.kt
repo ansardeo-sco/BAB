@@ -138,6 +138,9 @@ interface PaperDao {
     @Query("SELECT COUNT(*) FROM trading_cycles WHERE stage = :stage AND symbol = :symbol AND direction = :direction AND status IN ('PENDING_ENTRY','ACTIVE','CLOSING')")
     suspend fun countOpenCycles(stage: String, symbol: String, direction: String): Int
 
+    @Query("SELECT COUNT(*) FROM trading_cycles WHERE stage = :stage AND symbol = :symbol AND direction = :direction AND id <> :excludeCycleId AND status IN ('PENDING_ENTRY','ACTIVE','CLOSING')")
+    suspend fun countOpenCyclesExcluding(stage: String, symbol: String, direction: String, excludeCycleId: Long): Int
+
     @Query("SELECT COUNT(*) FROM trading_cycles WHERE stage = :stage AND symbol = :symbol AND status IN ('PENDING_ENTRY','ACTIVE','CLOSING')")
     suspend fun countOpenCyclesAnyDirection(stage: String, symbol: String): Int
 }

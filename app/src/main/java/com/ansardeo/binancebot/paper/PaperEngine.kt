@@ -344,8 +344,9 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         val dist = cycle.newEntryDistancePercent / 100.0
         val longTrigger = closePrice * (1.0 - dist)
         val shortTrigger = closePrice * (1.0 + dist)
-        val longOpen = dao.countOpenCycles(stage.id, cycle.symbol, "LONG") > 0
-        val shortOpen = dao.countOpenCycles(stage.id, cycle.symbol, "SHORT") > 0
+        // Exclude the source cycle being closed so same-side re-entry is not incorrectly blocked.
+        val longOpen = dao.countOpenCyclesExcluding(stage.id, cycle.symbol, "LONG", cycle.id) > 0
+        val shortOpen = dao.countOpenCyclesExcluding(stage.id, cycle.symbol, "SHORT", cycle.id) > 0
         if (!longOpen) insertReentryPlanLocked(cycle, "LONG", longTrigger, closePrice, now)
         if (!shortOpen) insertReentryPlanLocked(cycle, "SHORT", shortTrigger, closePrice, now)
         dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = cycle.id, symbol = cycle.symbol, type = "REENTRY_PLANNED",
@@ -354,6 +355,10 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
     }
 
     private suspend fun insertReentryPlanLocked(cycle: PaperCycleEntity, direction: String, trigger: Double, closePrice: Double, now: Long) {
+        val existing = dao.getPendingReentryPlans(stage.id).firstOrNull {
+            it.sourceCycleId == cycle.id && it.direction == direction && it.symbol == cycle.symbol && it.status in setOf("WAITING", "TRIGGERED", "ORDER_PLACED")
+        }
+        if (existing != null) return
         val plan = PaperReentryPlanEntity(stage = stage.id, sourceCycleId = cycle.id, symbol = cycle.symbol, direction = direction, leverage = cycle.leverage,
             margin = cycle.initialMargin, referenceClosePrice = closePrice, triggerPrice = trigger, status = "WAITING",
             clientPlanId = "re-${stage.id}-${cycle.id}-$direction-$now-${UUID.randomUUID()}", createdAt = now, updatedAt = now)
