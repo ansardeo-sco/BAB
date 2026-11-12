@@ -225,7 +225,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         fun volumeText(t: Ticker): String {
-            val q = t.quoteVolume ?: t.volume
+            val q = t.quoteVolume
             if (q == null || q <= 0.0) return "--"
             return when {
                 q >= 1_000_000_000 -> String.format(Locale.US, "%.2fB", q / 1_000_000_000)
