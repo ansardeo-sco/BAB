@@ -11,46 +11,32 @@ import kotlin.math.log10
 
 object PriceFormatter {
     /**
-     * Dynamic display formatting for market/order prices (display only; never use for calculations).
-     * Decimal precision is selected by the number of digits in the integer part of |value|:
-     * 1 digit (0-9) -> 7 decimals, 2 -> 6, 3 -> 5, 4 -> 4, 5 -> 3, 6+ -> 2.
-     * Never uses scientific notation. Locale-independent (period decimal separator).
-     * Returns "--" for null, NaN, and Infinity.
+     * Futures UI display formatting for cryptocurrency prices (display only; never use for calculations).
+     * Always shows exactly 5 decimal places, never scientific notation. Returns "--" for null/NaN/Infinity.
+     * Do not use for actual order submission prices (use raw/precise values to preserve tick-size precision).
      */
     fun formatPrice(value: Double?): String {
         if (value == null || value.isNaN() || value.isInfinite()) return "--"
         return try {
-            val absVal = abs(value)
-            val decimals = decimalsForPrice(absVal)
-            val bd = BigDecimal.valueOf(value).setScale(decimals, RoundingMode.HALF_UP)
-            formatPlain(bd, decimals)
+            String.format(Locale.US, "%.5f", value)
         } catch (_: Exception) {
             "--"
         }
     }
 
-    internal fun decimalsForPrice(absValue: Double): Int {
-        if (!absValue.isFinite() || absValue < 0.0) return 7
-        val intDigits = if (absValue < 1.0) 1 else (floor(log10(absValue)).toInt() + 1)
-        return when {
-            intDigits <= 1 -> 7
-            intDigits == 2 -> 6
-            intDigits == 3 -> 5
-            intDigits == 4 -> 4
-            intDigits == 5 -> 3
-            else -> 2
+    /**
+     * Precise plain-string price for order/input prefills (not rounded to 5dp for display).
+     * Keeps actual numeric precision intent; never scientific notation.
+     */
+    fun formatPriceInput(value: Double?): String {
+        if (value == null || value.isNaN() || value.isInfinite()) return ""
+        return try {
+            val bd = BigDecimal.valueOf(value).stripTrailingZeros()
+            val out = bd.toPlainString()
+            if (out == "-0") "0" else out
+        } catch (_: Exception) {
+            value.toString()
         }
-    }
-
-    private fun formatPlain(bd: BigDecimal, maxDecimals: Int): String {
-        val symbols = DecimalFormatSymbols(Locale.US).apply { decimalSeparator = '.' }
-        val pattern = if (maxDecimals <= 0) "0" else "0." + "#".repeat(maxDecimals)
-        val df = DecimalFormat(pattern, symbols).apply {
-            isGroupingUsed = false
-            roundingMode = RoundingMode.HALF_UP
-        }
-        val out = df.format(bd)
-        return if (out == "-0" || out == "-0.0") "0" else out
     }
 
     /** ROI/display percent: exactly 2 decimal places (e.g. +1.23%, -4.56%). */

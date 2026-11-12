@@ -128,7 +128,7 @@ class ManualEntryActivity : AppCompatActivity() {
                     livePrice = px ?: st.livePrice
                     livePriceTv.text = "Live price: ${PriceFormatter.formatPrice(livePrice)} USDT"
                     liveStatus.text = if (livePrice != null) "Live (auto-refresh)" else "Unavailable"
-                    if (!userEdited && livePrice != null && entryPriceInput.text.isNullOrBlank()) entryPriceInput.setText(PriceFormatter.formatPrice(livePrice))
+                    if (!userEdited && livePrice != null && entryPriceInput.text.isNullOrBlank()) entryPriceInput.setText(PriceFormatter.formatPriceInput(livePrice))
                     renderStats(st); updateSummary()
                 }
                 val r = Runnable { tick() }; refresh = r; handler.postDelayed(r, 12000)

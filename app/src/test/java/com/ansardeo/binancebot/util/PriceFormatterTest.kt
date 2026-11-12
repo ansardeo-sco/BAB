@@ -8,34 +8,28 @@ import java.math.RoundingMode
 class PriceFormatterTest {
 
     private fun bd(s: String) = BigDecimal(s)
-    private fun expectFromDouble(v: String, decimals: Int): String {
-        val d = bd(v).toDouble()
-        val r = BigDecimal.valueOf(d).setScale(decimals, RoundingMode.HALF_UP)
-        val symbols = java.text.DecimalFormatSymbols(java.util.Locale.US).apply { decimalSeparator = '.' }
-        val pattern = if (decimals <= 0) "0" else "0." + "#".repeat(decimals)
-        val df = java.text.DecimalFormat(pattern, symbols).apply { isGroupingUsed = false; roundingMode = RoundingMode.HALF_UP }
-        val out = df.format(r)
-        return if (out == "-0" || out == "-0.0") "0" else out
-    }
     private fun fmt(v: String) = PriceFormatter.formatPrice(bd(v).toDouble())
 
-    @Test fun dynamicDecimalPrecision_examples() {
-        assertEquals(expectFromDouble("0.123456789", 7), fmt("0.123456789"))
-        assertEquals(expectFromDouble("1.23456789", 7), fmt("1.23456789"))
-        assertEquals(expectFromDouble("8.12345678", 7), fmt("8.12345678"))
-        assertEquals(expectFromDouble("12.12345678", 6), fmt("12.12345678"))
-        assertEquals(expectFromDouble("123.1234567", 5), fmt("123.1234567"))
-        assertEquals(expectFromDouble("1234.123456", 4), fmt("1234.123456"))
-        assertEquals(expectFromDouble("12345.12345", 3), fmt("12345.12345"))
-        assertEquals(expectFromDouble("75849.12345", 3), fmt("75849.12345"))
-        assertEquals(expectFromDouble("125000.12345", 2), fmt("125000.12345"))
+    @Test fun priceExactlyFiveDecimals_examples() {
+        assertEquals("2.12346", fmt("2.12345678"))
+        assertEquals("2.10000", fmt("2.1"))
+        assertEquals("0.01235", fmt("0.012345678"))
+        assertEquals("0.50000", fmt("0.5"))
+        assertEquals("123.12346", fmt("123.1234567"))
+        assertEquals("75849.12345", fmt("75849.12345"))
     }
 
     @Test fun handlesSpecialValues() {
-        assertEquals("0", PriceFormatter.formatPrice(0.0))
+        assertEquals("0.00000", PriceFormatter.formatPrice(0.0))
         assertEquals("--", PriceFormatter.formatPrice(null))
         assertEquals("--", PriceFormatter.formatPrice(Double.NaN))
         assertEquals("--", PriceFormatter.formatPrice(Double.POSITIVE_INFINITY))
+    }
+
+    @Test fun formatPriceInput_preservesPrecisionForOrders() {
+        assertEquals("2.12345678", PriceFormatter.formatPriceInput(2.12345678))
+        assertEquals("0.012345678", PriceFormatter.formatPriceInput(0.012345678))
+        assertEquals("", PriceFormatter.formatPriceInput(null))
     }
 
     @Test fun neverUsesScientificNotation() {

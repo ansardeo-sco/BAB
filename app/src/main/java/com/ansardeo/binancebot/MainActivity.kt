@@ -507,7 +507,7 @@ class MainActivity : AppCompatActivity() {
                     liveStatus.text = if (currentLivePrice != null) "Live" else "Unavailable"
                     liveStatus.setTextColor(if (currentLivePrice != null) green else red)
                     if (!userEditedEntryPrice && currentLivePrice != null && entryPriceInput.text.isNullOrBlank()) {
-                        entryPriceInput.setText(PriceFormatter.formatPrice(currentLivePrice))
+                        entryPriceInput.setText(PriceFormatter.formatPriceInput(currentLivePrice))
                     }
                     updateSummary()
                 }
@@ -529,7 +529,7 @@ class MainActivity : AppCompatActivity() {
                 symbolInput.setText(prefillSymbol, false)
                 if (prefillPrice != null && prefillPrice > 0) {
                     userEditedEntryPrice = true
-                    entryPriceInput.setText(PriceFormatter.formatPrice(prefillPrice))
+                    entryPriceInput.setText(PriceFormatter.formatPriceInput(prefillPrice))
                 }
             } else {
                 val fav = FavoritesStore.load(this@MainActivity).firstOrNull()
@@ -606,10 +606,10 @@ class MainActivity : AppCompatActivity() {
 
         var primaryTab = 0 // 0 Position, 1 Open Order, 2 History
         var positionSub = 0 // 0 Open, 1 Closed
-        var orderSub = 0 // 0 Basic, 1 Conditional
-        var historySub = 0 // 0 Fills, 1 Closes
+        var orderSub = 0 // 0 Basic, 1 TP, 2 SL
+        var historySub = 1 // 0 Fills, 1 Closes (Closes default when History is entered)
         lateinit var primaryViews: List<TextView>
-        lateinit var subViews: List<TextView>
+        var subViews: List<TextView> = emptyList()
 
         fun stylePrimary(posCount: Int, openCount: Int, histCount: Int) {
             val labels = listOf("Position ($posCount)", "Open Order ($openCount)", "History ($histCount)")
@@ -620,18 +620,33 @@ class MainActivity : AppCompatActivity() {
                 tv.background = if (sel) rounded(inputBg, 10) else null
             }
         }
-        fun styleSub(a: String, b: String) {
-            val labels = listOf(a, b)
+        fun styleSub(labels: List<String>) {
             subViews.forEachIndexed { i, tv ->
                 val sel = when (primaryTab) {
                     0 -> i == positionSub
                     1 -> i == orderSub
                     else -> i == historySub
                 }
-                tv.text = labels[i]
+                tv.text = labels.getOrElse(i) { "" }
                 tv.setTextColor(if (sel) yellow else muted)
                 tv.setTypeface(null, if (sel) Typeface.BOLD else Typeface.NORMAL)
                 tv.background = if (sel) rounded(inputBg, 8) else null
+            }
+        }
+        fun rebuildSubTabs() {
+            subBar.removeAllViews()
+            val count = if (primaryTab == 1) 3 else 2
+            subViews = (0 until count).map { i ->
+                TextView(this).apply {
+                    gravity = Gravity.CENTER; setPadding(dp(8), dp(8), dp(8), dp(8)); textSize = 11f
+                    setOnClickListener {
+                        when (primaryTab) {
+                            0 -> if (positionSub != i) { positionSub = i; render() }
+                            1 -> if (orderSub != i) { orderSub = i; render() }
+                            2 -> if (historySub != i) { historySub = i; render() }
+                        }
+                    }
+                }.also { subBar.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
             }
         }
         fun render() {
@@ -673,27 +688,32 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     fillRecords.sortByDescending { (c, e) -> e.filledAt ?: e.updatedAt ?: e.createdAt ?: c.updatedAt }
-                    // Conditional opposite triggers (awaiting averaging execution)
+                    // Conditional opposite triggers (awaiting averaging execution) - kept in Basic open orders subsection
                     val conditionalOpposites = cyclesAll.filter { c ->
                         c.oppositeEnabled && !c.oppositeDone && c.status in listOf("PENDING_ENTRY","ACTIVE","CLOSING") &&
                             dao.getEntries(c.id).any { it.entryType == "AVERAGING" && it.status == "PENDING" } &&
                             dao.countOpenCycles(sid, c.symbol, if (c.direction == "LONG") "SHORT" else "LONG") == 0
                     }
-                    val trailingConditionalCount = openPositionCount // one trailing stop per open entry
-                    val basicCount = openEntryOrders.size + reentries.size
-                    val conditionalCount = trailingConditionalCount + protectiveSlOrders.size + conditionalOpposites.size
-                    val historyCount = fillRecords.size + history.size
-                    stylePrimary(openPositionCount, basicCount, historyCount)
+                    val tpCount = openPositionCount // trailing-stop (TP) orders, one per open executed entry
+                    val slCount = protectiveSlOrders.size
+                    val basicCount = openEntryOrders.size + reentries.size + conditionalOpposites.size
+                    val openOrderCount = basicCount + tpCount + slCount
+                    val historyCount = (fillRecords.size - history.size).coerceAtLeast(0)
+                    stylePrimary(openPositionCount, openOrderCount, historyCount)
                     subBar.visibility = View.VISIBLE
                     when (primaryTab) {
-                        0 -> styleSub("Open ($openPositionCount)", "Closed (${history.size})")
-                        1 -> styleSub("Basic ($basicCount)", "Conditional ($conditionalCount)")
-                        2 -> styleSub("Fills (${fillRecords.size})", "Closes (${history.size})")
+                        0 -> styleSub(listOf("Open ($openPositionCount)", "Closed (${history.size})"))
+                        1 -> styleSub(listOf("Basic ($basicCount)", "TP ($tpCount)", "SL ($slCount)"))
+                        2 -> styleSub(listOf("Fills (${fillRecords.size})", "Closes (${history.size})"))
                     }
                     body.removeAllViews()
                     when (primaryTab) {
                         0 -> if (positionSub == 0) renderPositionsOpen(body, openPositions, prices, priceState) else renderPositionsClosed(body, history)
-                        1 -> if (orderSub == 0) renderOrdersBasic(body, openEntryOrders, reentries, prices, priceState) else renderOrdersConditional(body, openPositions, protectiveSlOrders, conditionalOpposites, cycleById, prices, priceState)
+                        1 -> when (orderSub) {
+                            0 -> renderOrdersBasic(body, openEntryOrders, reentries, conditionalOpposites, prices, priceState)
+                            1 -> renderOrdersTp(body, openPositions, prices, priceState)
+                            else -> renderOrdersSl(body, protectiveSlOrders, cycleById, prices, priceState)
+                        }
                         2 -> if (historySub == 0) renderHistoryFills(body, fillRecords) else renderHistoryCloses(body, history)
                     }
                 } catch (e: Exception) {
@@ -701,20 +721,22 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        var lastPrimary = -1
         primaryViews = listOf("Position","Open Order","History").mapIndexed { i, _ ->
-            TextView(this).apply { gravity = Gravity.CENTER; setPadding(dp(8), dp(10), dp(8), dp(10)); textSize = 12f; setOnClickListener { if (primaryTab != i) { primaryTab = i; render() } } }
-                .also { tabBar.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
-        }
-        subViews = listOf("A","B").mapIndexed { i, _ ->
-            TextView(this).apply { gravity = Gravity.CENTER; setPadding(dp(8), dp(8), dp(8), dp(8)); textSize = 11f; setOnClickListener {
-                when (primaryTab) {
-                    0 -> if (positionSub != i) { positionSub = i; render() }
-                    1 -> if (orderSub != i) { orderSub = i; render() }
-                    2 -> if (historySub != i) { historySub = i; render() }
+            TextView(this).apply {
+                gravity = Gravity.CENTER; setPadding(dp(8), dp(10), dp(8), dp(10)); textSize = 12f
+                setOnClickListener {
+                    if (primaryTab != i) {
+                        primaryTab = i
+                        if (i == 2) historySub = 1 // Closes selected by default every time History is entered
+                        rebuildSubTabs()
+                        render()
+                    }
                 }
-            } }.also { subBar.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
+            }.also { tabBar.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
         }
-        stylePrimary(0,0,0); styleSub("Open","Closed"); render()
+        rebuildSubTabs()
+        stylePrimary(0,0,0); styleSub(listOf("Open","Closed")); render()
     }
 
     private fun makeItemCard(parent: LinearLayout): LinearLayout {
@@ -841,7 +863,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderOrdersBasic(body: LinearLayout, entryOrders: List<PaperOrderEntity>, reentries: List<PaperReentryPlanEntity>, prices: Map<String, Ticker>, priceState: String) {
+    private fun renderOrdersBasic(body: LinearLayout, entryOrders: List<PaperOrderEntity>, reentries: List<PaperReentryPlanEntity>, conditionalOpposites: List<PaperCycleEntity>, prices: Map<String, Ticker>, priceState: String) {
         var any = false
         for (o in entryOrders.sortedByDescending { it.createdAt }) {
             any = true
@@ -870,13 +892,30 @@ class MainActivity : AppCompatActivity() {
             addLabel(box, "Status", r.status, muted, true)
             addLabel(box, "Created At", fmtDateTime(r.createdAt), muted)
         }
-        if (!any) body.addView(text("No open orders.", 13f, muted))
+        // Conditional opposite-side triggers (awaiting averaging execution) kept as basic open orders
+        for (c in conditionalOpposites) {
+            any = true
+            val oppositeDir = if (c.direction == "LONG") "SHORT" else "LONG"
+            val box = makeItemCard(body)
+            val header = row()
+            header.addView(text(c.symbol, 15f, white, true), LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(text("WAITING", 12f, yellow, true))
+            box.addView(header)
+            addLabel(box, "Position Side", oppositeDir, if (oppositeDir == "LONG") green else red, true)
+            addLabel(box, "Order Type", "CONDITIONAL TRIGGER", yellow, true)
+            addLabel(box, "Order Status", "WAITING", yellow, true)
+            addLabel(box, "Current Price", currentPriceText(prices, c.symbol, priceState), white, true)
+            addLabel(box, "Order Quantity", "--", muted)
+            addLabel(box, "Reduce Only", "NO", white, true)
+            addLabel(box, "Created At", fmtDateTime(c.updatedAt), muted)
+            addLabel(box, "Updated At", fmtDateTime(c.updatedAt), muted)
+        }
+        if (!any) body.addView(text("No basic open orders.", 13f, muted))
     }
 
-    private fun renderOrdersConditional(body: LinearLayout, openPositions: List<PaperCycleWithEntries>, protectiveSlOrders: List<PaperOrderEntity>, conditionalOpposites: List<PaperCycleEntity>, cycleById: Map<Long, PaperCycleEntity>, prices: Map<String, Ticker>, priceState: String) {
+    private fun renderOrdersTp(body: LinearLayout, openPositions: List<PaperCycleWithEntries>, prices: Map<String, Ticker>, priceState: String) {
         var any = false
-        val slById = protectiveSlOrders.associateBy { it.id }
-        // Trailing Stop conditional orders (one per open executed entry) - derived from actual engine state
+        // Trailing Stop (Take Profit) orders - one per open executed entry, derived from actual engine state
         for (cwe in openPositions) {
             val c = cwe.cycle
             val openEntries = cwe.entries.filter { it.status == "FILLED" && it.remainingQuantity > 1e-12 }
@@ -905,7 +944,12 @@ class MainActivity : AppCompatActivity() {
                 addLabel(box, "Updated At", fmtDateTime(e.updatedAt), muted)
             }
         }
-        // Stop Loss conditional orders (actual active SL orders)
+        if (!any) body.addView(text("No TP orders.", 13f, muted))
+    }
+
+    private fun renderOrdersSl(body: LinearLayout, protectiveSlOrders: List<PaperOrderEntity>, cycleById: Map<Long, PaperCycleEntity>, prices: Map<String, Ticker>, priceState: String) {
+        var any = false
+        // Stop Loss orders (actual active SL orders)
         for (o in protectiveSlOrders.sortedByDescending { it.updatedAt }) {
             any = true
             val cycle = cycleById[o.cycleId]
@@ -933,25 +977,7 @@ class MainActivity : AppCompatActivity() {
             addLabel(box, "Created At", fmtDateTime(o.createdAt), muted)
             addLabel(box, "Updated At", fmtDateTime(o.updatedAt), muted)
         }
-        // Conditional opposite-side triggers (awaiting averaging execution) - shown in English with applicable fields only
-        for (c in conditionalOpposites) {
-            any = true
-            val oppositeDir = if (c.direction == "LONG") "SHORT" else "LONG"
-            val box = makeItemCard(body)
-            val header = row()
-            header.addView(text(c.symbol, 15f, white, true), LinearLayout.LayoutParams(0, -2, 1f))
-            header.addView(text("WAITING", 12f, yellow, true))
-            box.addView(header)
-            addLabel(box, "Position Side", oppositeDir, if (oppositeDir == "LONG") green else red, true)
-            addLabel(box, "Order Type", "CONDITIONAL TRIGGER", yellow, true)
-            addLabel(box, "Order Status", "WAITING", yellow, true)
-            addLabel(box, "Current Price", currentPriceText(prices, c.symbol, priceState), white, true)
-            addLabel(box, "Order Quantity", "--", muted)
-            addLabel(box, "Reduce Only", "NO", white, true)
-            addLabel(box, "Created At", fmtDateTime(c.updatedAt), muted)
-            addLabel(box, "Updated At", fmtDateTime(c.updatedAt), muted)
-        }
-        if (!any) body.addView(text("No conditional orders.", 13f, muted))
+        if (!any) body.addView(text("No SL orders.", 13f, muted))
     }
 
     private fun renderHistoryFills(body: LinearLayout, fills: List<Pair<PaperCycleEntity, PaperEntryEntity>>) {
