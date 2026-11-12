@@ -519,6 +519,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fmtTime(ts: Long): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(ts))
+    private fun fmtDateTime(ts: Long?): String = ts?.let { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(it)) } ?: "--"
 
     // ---------------- FUTURE ----------------
     private fun positionsPage() /* Future tab */ {
@@ -571,34 +572,36 @@ class MainActivity : AppCompatActivity() {
                         cwe.cycle.status in listOf("PENDING_ENTRY","ACTIVE","CLOSING") &&
                             (cwe.cycle.totalRemainingQuantity > 1e-12 || cwe.entries.any { e -> e.status == "PENDING" || e.remainingQuantity > 1e-12 })
                     }
-                    // Position -> Open: only genuinely executed and currently open positions
+                    // Position -> Open: only genuinely executed and currently open positions (per-entry cards)
                     val openPositions = active.filter { cwe ->
                         cwe.cycle.status != "PENDING_ENTRY" &&
                             cwe.entries.any { e -> e.status == "FILLED" && e.remainingQuantity > 1e-12 }
                     }
-                    val allOrders = dao.getActiveOrders(sid).filter { it.status == "ACTIVE" }
+                    val openPositionCount = openPositions.sumOf { cwe -> cwe.entries.count { e -> e.status == "FILLED" && e.remainingQuantity > 1e-12 } }
+                    val allOrders = dao.getActiveOrders(sid).filter { it.status in setOf("ACTIVE", "CANCELLING") }
                     val cyclesAll = dao.getRecentCycles(sid, 300)
                     val cycleById = cyclesAll.associateBy { it.id }
                     val openEntryOrders = allOrders.filter { it.orderType == "ENTRY_LIMIT" }
-                    val protectiveOrders = allOrders.filter { it.orderType == "CYCLE_TP" || it.orderType == "ENTRY_SL" }
+                    val protectiveSlOrders = allOrders.filter { it.orderType == "ENTRY_SL" }
                     val reentries = dao.getPendingReentryPlans(sid).filter { it.status !in listOf("EXECUTED","CANCELLED","FAILED") }
                     val history = dao.getHistoryCloses(sid, 500)
-                    // Conditional opposite triggers (awaiting averaging execution) - pending trigger, shown in Conditional
+                    // Conditional opposite triggers (awaiting averaging execution)
                     val conditionalOpposites = cyclesAll.filter { c ->
                         c.oppositeEnabled && !c.oppositeDone && c.status in listOf("PENDING_ENTRY","ACTIVE","CLOSING") &&
                             dao.getEntries(c.id).any { it.entryType == "AVERAGING" && it.status == "PENDING" } &&
                             dao.countOpenCycles(sid, c.symbol, if (c.direction == "LONG") "SHORT" else "LONG") == 0
                     }
+                    val trailingConditionalCount = openPositionCount // one trailing stop per open entry
                     val basicCount = openEntryOrders.size + reentries.size
-                    val conditionalCount = protectiveOrders.groupBy { it.cycleId }.size + conditionalOpposites.size
-                    stylePrimary(openPositions.size, basicCount, history.size)
+                    val conditionalCount = trailingConditionalCount + protectiveSlOrders.size + conditionalOpposites.size
+                    stylePrimary(openPositionCount, basicCount, history.size)
                     subBar.visibility = if (primaryTab == 2) View.GONE else View.VISIBLE
-                    if (primaryTab == 0) styleSub("Open (${openPositions.size})", "Closed (${history.size})")
+                    if (primaryTab == 0) styleSub("Open ($openPositionCount)", "Closed (${history.size})")
                     else if (primaryTab == 1) styleSub("Basic ($basicCount)", "Conditional ($conditionalCount)")
                     body.removeAllViews()
                     when (primaryTab) {
                         0 -> if (positionSub == 0) renderPositionsOpen(body, openPositions, prices, priceState) else renderPositionsClosed(body, history)
-                        1 -> if (orderSub == 0) renderOrdersBasic(body, openEntryOrders, reentries, prices, priceState) else renderOrdersConditional(body, protectiveOrders, conditionalOpposites, cycleById, prices, priceState)
+                        1 -> if (orderSub == 0) renderOrdersBasic(body, openEntryOrders, reentries, prices, priceState) else renderOrdersConditional(body, openPositions, protectiveSlOrders, conditionalOpposites, cycleById, prices, priceState)
                         2 -> renderHistoryPrimary(body, history)
                     }
                 } catch (e: Exception) {
@@ -639,36 +642,92 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderPositionsOpen(body: LinearLayout, active: List<PaperCycleWithEntries>, prices: Map<String, Ticker>, priceState: String) {
-        if (active.isEmpty()) { body.addView(text("No open positions.", 13f, muted)); return }
-        for (cwe in active) {
-            val c = cwe.cycle
-            val openEntries = cwe.entries.filter { it.status == "FILLED" && it.remainingQuantity > 1e-12 }
-            if (openEntries.isEmpty()) continue
-            val px = prices[c.symbol]?.markPrice ?: prices[c.symbol]?.lastPrice
-            for (e in openEntries) {
-                val entryPrice = e.fillPrice
-                val entryQty = e.remainingQuantity
-                val baseQty = kotlin.math.max(e.filledQuantity, 1e-12)
-                val entryMargin = e.margin * (entryQty / baseQty)
-                val unreal = if (px != null && entryPrice != null && entryQty > 1e-12) {
-                    if (c.direction == "LONG") (px - entryPrice) * entryQty else (entryPrice - px) * entryQty
-                } else null
-                val roi = if (unreal != null && entryMargin > 1e-12) (unreal / entryMargin) * 100.0 else null
-                val box = makeItemCard(body)
-                val header = row().apply { isClickable = true; setOnClickListener { openDetail(c.symbol) } }
-                header.addView(text("${c.symbol}  ${c.direction}", 15f, if (c.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
-                header.addView(text("${c.leverage}x", 12f, muted, true)); box.addView(header)
-                addLabel(box, "Current Price", currentPriceText(prices, c.symbol, priceState), white, true)
-                addLabel(box, "Entry Price", PriceFormatter.formatPrice(entryPrice), white, true)
-                addLabel(box, "Margin", PriceFormatter.formatUsdt(entryMargin), white, true)
-                addLabel(box, "Trailing Stop", if (c.averageEntryPrice != null) "avg ${PriceFormatter.formatPrice(c.averageEntryPrice)} (act ${c.trailingActivationPercent}%, cb ${c.callbackRatePercent}%)" else "--", white, true)
-                addLabel(box, "Entry SL", PriceFormatter.formatPrice(e.slPrice), white, true)
-                addLabel(box, "ROI", PriceFormatter.formatPercent(roi), pnlColor(roi), true)
-                addLabel(box, "Unrealized PNL", PriceFormatter.formatPnl(unreal), pnlColor(unreal), true)
-            }
+    private fun addProminentLabel(parent: LinearLayout, label: String, value: String, valueColor: Int = white) {
+        val line = row().apply { layoutParams = LinearLayout.LayoutParams(-1, -2) }
+        line.addView(text(label, 13f, muted, true), LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(24) })
+        line.addView(text(value, 15f, valueColor, true).apply {
+            gravity = Gravity.END
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+            typeface = Typeface.MONOSPACE
+        })
+        parent.addView(line)
+        addSpace(parent, 8)
+    }
+
+    private fun trailingActivationPriceFor(e: PaperEntryEntity): Double? {
+        val base = e.trailingBasePrice ?: e.fillPrice ?: return null
+        val act = e.trailingActivationPercent / 100.0
+        if (act <= 0.0) return null
+        return if (e.direction == "LONG") base * (1.0 + act) else base * (1.0 - act)
+    }
+
+    private fun trailingStatusFor(cycle: PaperCycleEntity, e: PaperEntryEntity, px: Double?): String {
+        val hitNow = if (px != null && e.trailingActivated && e.trailingStopPrice != null) {
+            if (e.direction == "LONG") px <= (e.trailingStopPrice ?: Double.NEGATIVE_INFINITY) + 1e-9 else px >= (e.trailingStopPrice ?: Double.POSITIVE_INFINITY) - 1e-9
+        } else false
+        return when {
+            e.status == "CLOSED" -> "CLOSED"
+            e.status == "FILLED" && cycle.status == "CLOSING" -> "CLOSING"
+            hitNow -> "HIT"
+            e.trailingActivated -> "ACTIVE"
+            else -> "WAITING"
         }
     }
+
+    private fun statusBadgeColor(status: String): Int = when (status) {
+        "ACTIVE" -> green
+        "WAITING" -> yellow
+        "HIT", "CLOSING" -> red
+        "CLOSED", "FILLED" -> green
+        "CANCELLED", "REJECTED" -> muted
+        else -> muted
+    }
+
+    private fun renderPositionsOpen(body: LinearLayout, active: List<PaperCycleWithEntries>, prices: Map<String, Ticker>, priceState: String) {
+        val openEntries = active.flatMap { cwe -> cwe.entries.filter { it.status == "FILLED" && it.remainingQuantity > 1e-12 }.map { cwe.cycle to it } }
+        if (openEntries.isEmpty()) { body.addView(text("No open positions.", 13f, muted)); return }
+        for ((c, e) in openEntries) {
+            val px = prices[c.symbol]?.markPrice ?: prices[c.symbol]?.lastPrice
+            val entryPrice = e.fillPrice
+            val entryQty = e.remainingQuantity
+            val baseQty = kotlin.math.max(e.filledQuantity, 1e-12)
+            val entryMargin = e.margin * (entryQty / baseQty)
+            val unreal = if (px != null && entryPrice != null && entryQty > 1e-12) {
+                if (c.direction == "LONG") (px - entryPrice) * entryQty else (entryPrice - px) * entryQty
+            } else null
+            val roi = if (unreal != null && entryMargin > 1e-12) (unreal / entryMargin) * 100.0 else null
+            val box = makeItemCard(body)
+            val header = row().apply { isClickable = true; setOnClickListener { openDetail(c.symbol) } }
+            header.addView(text(c.symbol, 16f, white, true), LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(text("${c.direction}  ${c.leverage}x", 13f, if (c.direction == "LONG") green else red, true))
+            box.addView(header)
+            addSpace(box, 4)
+            addLabel(box, "Current Price", currentPriceText(prices, c.symbol, priceState), white, true)
+            addLabel(box, "Entry Price", PriceFormatter.formatPrice(entryPrice), white, true)
+            val avg = c.averageEntryPrice
+            val showAvg = avg != null && (c.averagingDone || (entryPrice != null && kotlin.math.abs(avg - entryPrice) > 1e-9))
+            if (showAvg) addLabel(box, "Average Entry Price", PriceFormatter.formatPrice(avg), white, true)
+            addLabel(box, "Position Quantity", PriceFormatter.formatQty(entryQty), white, true)
+            addLabel(box, "Margin", PriceFormatter.formatUsdt(entryMargin) + " USDT", white, true)
+            val tsValue = when {
+                e.trailingStopPrice != null -> PriceFormatter.formatPrice(e.trailingStopPrice)
+                e.trailingActivated -> "Active"
+                else -> "Waiting (not activated)"
+            }
+            addProminentLabel(box, "Trailing Stop Price", tsValue, yellow)
+            addLabel(box, "Activation", "${PriceFormatter.formatPercent(e.trailingActivationPercent)}", white, true)
+            addLabel(box, "Callback Rate", "${PriceFormatter.formatPercent(e.trailingCallbackPercent)}", white, true)
+            addLabel(box, "Entry Stop Loss", PriceFormatter.formatPrice(e.slPrice), red, true)
+            addLabel(box, "ROI", PriceFormatter.formatPercent(roi), pnlColor(roi), true)
+            addLabel(box, "Unrealized PNL", if (unreal == null) "--" else PriceFormatter.formatPnl(unreal) + " USDT", pnlColor(unreal), true)
+            addSpace(box, 2)
+            box.addView(text("Trailing Stop Status", 12f, muted, true))
+            addSpace(box, 4)
+            val status = trailingStatusFor(c, e, px)
+            box.addView(text(status, 13f, statusBadgeColor(status), true))
+        }
+    }
+
     private fun renderPositionsClosed(body: LinearLayout, history: List<PaperHistoryCloseEntity>) {
         if (history.isEmpty()) { body.addView(text("No closed positions.", 13f, muted)); return }
         val tf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
@@ -676,13 +735,13 @@ class MainActivity : AppCompatActivity() {
             val box = makeItemCard(body)
             val header = row()
             header.addView(text("${h.symbol} ${h.direction}", 15f, if (h.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
-            header.addView(text(h.closingReason, 12f, when (h.closingReason) { "TP" -> green; "SL","LIQUIDATION" -> red; else -> white }, true))
+            header.addView(text(h.closingReason, 12f, when (h.closingReason) { "TP", "TRAILING_STOP" -> green; "SL","LIQUIDATION" -> red; else -> white }, true))
             box.addView(header)
             addLabel(box, "Entry", PriceFormatter.formatPrice(h.entryFillPrice), white, true)
             addLabel(box, "Exit", PriceFormatter.formatPrice(h.exitFillPrice), white, true)
-            addLabel(box, "Qty", PriceFormatter.formatQty(h.closedQuantity))
-            addLabel(box, "Margin / Lev", "${PriceFormatter.formatUsdt(h.entryMargin)} / ${h.leverage}x")
-            addLabel(box, "Realized PNL", "${PriceFormatter.formatPnl(h.realizedPnlUsdt)} (${PriceFormatter.formatPercent(h.realizedPnlPercent)})", pnlColor(h.realizedPnlUsdt), true)
+            addLabel(box, "Quantity", PriceFormatter.formatQty(h.closedQuantity))
+            addLabel(box, "Margin / Leverage", "${PriceFormatter.formatUsdt(h.entryMargin)} USDT / ${h.leverage}x")
+            addLabel(box, "Realized PNL", "${PriceFormatter.formatPnl(h.realizedPnlUsdt)} USDT (${PriceFormatter.formatPercent(h.realizedPnlPercent)})", pnlColor(h.realizedPnlUsdt), true)
             addLabel(box, "Closed", tf.format(java.util.Date(h.exitTimestamp)))
         }
     }
@@ -703,6 +762,7 @@ class MainActivity : AppCompatActivity() {
             header.addView(text(tag, 12f, yellow, true)); box.addView(header)
             addLabel(box, "Order Price", PriceFormatter.formatPrice(o.triggerPrice), white, true)
             addLabel(box, "Current Price", currentPriceText(prices, o.symbol, priceState), white, true)
+            addLabel(box, "Created At", fmtDateTime(o.createdAt), muted)
         }
         for (r in reentries.sortedByDescending { it.createdAt }) {
             any = true
@@ -712,63 +772,89 @@ class MainActivity : AppCompatActivity() {
             header.addView(text("Re-entry", 12f, yellow, true)); box.addView(header)
             addLabel(box, "Order Price", PriceFormatter.formatPrice(r.triggerPrice), white, true)
             addLabel(box, "Current Price", currentPriceText(prices, r.symbol, priceState), white, true)
+            addLabel(box, "Status", r.status, muted, true)
+            addLabel(box, "Created At", fmtDateTime(r.createdAt), muted)
         }
         if (!any) body.addView(text("No open orders.", 13f, muted))
     }
 
-    private fun renderOrdersConditional(body: LinearLayout, protectiveOrders: List<PaperOrderEntity>, conditionalOpposites: List<PaperCycleEntity>, cycleById: Map<Long, PaperCycleEntity>, prices: Map<String, Ticker>, priceState: String) {
+    private fun renderOrdersConditional(body: LinearLayout, openPositions: List<PaperCycleWithEntries>, protectiveSlOrders: List<PaperOrderEntity>, conditionalOpposites: List<PaperCycleEntity>, cycleById: Map<Long, PaperCycleEntity>, prices: Map<String, Ticker>, priceState: String) {
         var any = false
-        val byCycle = protectiveOrders.groupBy { it.cycleId }
-        for ((cycleId, orders) in byCycle.toSortedMap()) {
-            any = true
-            val cycle = cycleById[cycleId]
-            val sym = cycle?.symbol ?: orders.firstOrNull()?.symbol ?: "--"
-            val tp = orders.firstOrNull { it.orderType == "CYCLE_TP" } // none in trailing-stop model
-            // show cycle-level TP and a representative SL price per card context; margin is cycle initial+avg context - use cycle margins
-            val sls = orders.filter { it.orderType == "ENTRY_SL" }
-            val marginAmt = if (cycle != null) {
-                // total margin for open executed entries approximated by initial+averaging when applicable
-                cycle.initialMargin + if (cycle.averagingDone) cycle.averagingMargin else 0.0
-            } else 0.0
-            val box = makeItemCard(body)
-            val header = row()
-            header.addView(text("$sym ${cycle?.direction ?: ""}".trim(), 15f, if (cycle?.direction == "SHORT") red else green, true), LinearLayout.LayoutParams(0, -2, 1f))
-            box.addView(header)
-            addLabel(box, "Margin Amount", PriceFormatter.formatUsdt(marginAmt), white, true)
-            addLabel(box, "Current Price", currentPriceText(prices, sym, priceState), white, true)
-            addLabel(box, "Trailing Stop", if (cycle?.averageEntryPrice != null) "avg ${PriceFormatter.formatPrice(cycle.averageEntryPrice)} (act ${cycle.trailingActivationPercent}%, cb ${cycle.callbackRatePercent}%)" else "--", green, true)
-            // If multiple independent SLs exist, show each as its own separate card per-entry context while keeping only 4 fields
-            if (sls.isEmpty()) {
-                addLabel(box, "SL Order Price", "--", red, true)
-            } else if (sls.size == 1) {
-                addLabel(box, "SL Order Price", PriceFormatter.formatPrice(sls.first().triggerPrice), red, true)
-            } else {
-                // first in this card, rest as separate cards (each must be separate clean card per requirement intent)
-                addLabel(box, "SL Order Price", PriceFormatter.formatPrice(sls.first().triggerPrice), red, true)
-                for (sl in sls.drop(1)) {
-                    val c2 = makeItemCard(body)
-                    val h2 = row(); h2.addView(text("$sym ${cycle?.direction ?: ""}".trim(), 15f, if (cycle?.direction == "SHORT") red else green, true), LinearLayout.LayoutParams(0,-2,1f)); c2.addView(h2)
-                    val entryMargin = cycle?.initialMargin ?: marginAmt
-                    addLabel(c2, "Margin Amount", PriceFormatter.formatUsdt(entryMargin), white, true)
-                    addLabel(c2, "Current Price", currentPriceText(prices, sym, priceState), white, true)
-                    addLabel(c2, "Trailing Stop", if (cycle?.averageEntryPrice != null) "avg ${PriceFormatter.formatPrice(cycle.averageEntryPrice)} (act ${cycle.trailingActivationPercent}%, cb ${cycle.callbackRatePercent}%)" else "--", green, true)
-                    addLabel(c2, "SL Order Price", PriceFormatter.formatPrice(sl.triggerPrice), red, true)
-                }
+        val slById = protectiveSlOrders.associateBy { it.id }
+        // Trailing Stop conditional orders (one per open executed entry) - derived from actual engine state
+        for (cwe in openPositions) {
+            val c = cwe.cycle
+            val openEntries = cwe.entries.filter { it.status == "FILLED" && it.remainingQuantity > 1e-12 }
+            for (e in openEntries) {
+                any = true
+                val px = prices[c.symbol]?.markPrice ?: prices[c.symbol]?.lastPrice
+                val status = trailingStatusFor(c, e, px)
+                val activationPrice = trailingActivationPriceFor(e)
+                val box = makeItemCard(body)
+                val header = row()
+                header.addView(text(c.symbol, 15f, white, true), LinearLayout.LayoutParams(0, -2, 1f))
+                header.addView(text(status, 12f, statusBadgeColor(status), true))
+                box.addView(header)
+                addLabel(box, "Position Side", c.direction, if (c.direction == "LONG") green else red, true)
+                addLabel(box, "Order Type", "TRAILING STOP", yellow, true)
+                addLabel(box, "Order ID", e.trailingOrderId?.toString() ?: "TS-${e.id}", muted)
+                addLabel(box, "Current Price", currentPriceText(prices, c.symbol, priceState), white, true)
+                val triggerValue = e.trailingStopPrice?.let { PriceFormatter.formatPrice(it) } ?: "Not activated"
+                addProminentLabel(box, "Trailing Stop Price", triggerValue, yellow)
+                addLabel(box, "Activation Price", if (activationPrice != null) PriceFormatter.formatPrice(activationPrice) else "--", white, true)
+                addLabel(box, "Activation", "${PriceFormatter.formatPercent(e.trailingActivationPercent)}", white, true)
+                addLabel(box, "Callback Rate", "${PriceFormatter.formatPercent(e.trailingCallbackPercent)}", white, true)
+                addLabel(box, "Order Quantity", PriceFormatter.formatQty(e.remainingQuantity), white, true)
+                addLabel(box, "Reduce Only", "YES", white, true)
+                addLabel(box, "Created At", fmtDateTime(e.filledAt ?: e.createdAt), muted)
+                addLabel(box, "Updated At", fmtDateTime(e.updatedAt), muted)
             }
         }
-        // Conditional opposite-side triggers (awaiting averaging execution)
+        // Stop Loss conditional orders (actual active SL orders)
+        for (o in protectiveSlOrders.sortedByDescending { it.updatedAt }) {
+            any = true
+            val cycle = cycleById[o.cycleId]
+            val status = when (o.status) {
+                "ACTIVE" -> "ACTIVE"
+                "CANCELLING" -> "CLOSING"
+                "FILLED" -> "FILLED"
+                "CANCELLED", "CANCEL_VERIFIED" -> "CANCELLED"
+                "REJECTED", "FAILED" -> "REJECTED"
+                else -> o.status
+            }
+            val box = makeItemCard(body)
+            val header = row()
+            header.addView(text(o.symbol, 15f, white, true), LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(text(status, 12f, statusBadgeColor(status), true))
+            box.addView(header)
+            val side = cycle?.direction ?: o.direction
+            addLabel(box, "Position Side", side, if (side == "LONG") green else red, true)
+            addLabel(box, "Order Type", "STOP LOSS", yellow, true)
+            addLabel(box, "Order ID", o.exchangeOrderId ?: o.clientOrderId, muted)
+            addLabel(box, "Current Price", currentPriceText(prices, o.symbol, priceState), white, true)
+            addLabel(box, "Trigger Price", PriceFormatter.formatPrice(o.triggerPrice), red, true)
+            addLabel(box, "Order Quantity", PriceFormatter.formatQty(o.quantity), white, true)
+            addLabel(box, "Reduce Only", "YES", white, true)
+            addLabel(box, "Created At", fmtDateTime(o.createdAt), muted)
+            addLabel(box, "Updated At", fmtDateTime(o.updatedAt), muted)
+        }
+        // Conditional opposite-side triggers (awaiting averaging execution) - shown in English with applicable fields only
         for (c in conditionalOpposites) {
             any = true
-            val box = makeItemCard(body)
             val oppositeDir = if (c.direction == "LONG") "SHORT" else "LONG"
+            val box = makeItemCard(body)
             val header = row()
-            header.addView(text("${c.symbol} $oppositeDir", 15f, if (oppositeDir == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
-            header.addView(text("Conditional", 12f, yellow, true)); box.addView(header)
-            addLabel(box, "Margin Amount", PriceFormatter.formatUsdt(c.averagingMargin), white, true)
+            header.addView(text(c.symbol, 15f, white, true), LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(text("WAITING", 12f, yellow, true))
+            box.addView(header)
+            addLabel(box, "Position Side", oppositeDir, if (oppositeDir == "LONG") green else red, true)
+            addLabel(box, "Order Type", "CONDITIONAL TRIGGER", yellow, true)
+            addLabel(box, "Order Status", "WAITING", yellow, true)
             addLabel(box, "Current Price", currentPriceText(prices, c.symbol, priceState), white, true)
-            // pending trigger; TP/SL prices not yet applicable
-            addLabel(box, "TP Trigger Price", "--", green, true)
-            addLabel(box, "SL Order Price", "--", red, true)
+            addLabel(box, "Order Quantity", "--", muted)
+            addLabel(box, "Reduce Only", "NO", white, true)
+            addLabel(box, "Created At", fmtDateTime(c.updatedAt), muted)
+            addLabel(box, "Updated At", fmtDateTime(c.updatedAt), muted)
         }
         if (!any) body.addView(text("No conditional orders.", 13f, muted))
     }
