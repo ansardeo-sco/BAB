@@ -60,6 +60,9 @@ interface PaperDao {
     @Query("SELECT * FROM trading_orders WHERE stage = :stage AND status = 'ACTIVE' ORDER BY createdAt DESC")
     suspend fun getActiveOrders(stage: String): List<PaperOrderEntity>
 
+    @Query("SELECT * FROM trading_orders WHERE stage = :stage AND status <> 'ACTIVE' ORDER BY COALESCE(executedAt, updatedAt, createdAt) DESC LIMIT :limit")
+    suspend fun getCompletedOrders(stage: String, limit: Int = 300): List<PaperOrderEntity>
+
     @Query("SELECT * FROM trading_orders WHERE cycleId = :cycleId AND status = 'ACTIVE'")
     suspend fun getActiveOrdersForCycle(cycleId: Long): List<PaperOrderEntity>
 

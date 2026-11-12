@@ -206,19 +206,65 @@ class MainActivity : AppCompatActivity() {
         val balSub = text("Loading ${stage().shortLabel} wallet...", 11f, muted); addSpace(balCard, 4); balCard.addView(balSub)
         if (stage() == TradingStage.STAGE_3) balCard.addView(text("Stage 3 live balance integration is disabled by default. No real orders.", 11f, red))
 
-        val marketCard = addCard(root, "LIVE CRYPTOCURRENCY PRICES (READ-ONLY)", "Tap any coin for details. Prices use dynamic decimals, right-aligned.")
+        val marketCard = addCard(root, "LIVE CRYPTOCURRENCY PRICES (READ-ONLY)", "Tap any coin for details. Live Binance USDT-M Futures data.")
         val mStatus = text("Loading market data...", 12f, yellow, true); marketCard.addView(mStatus)
         val mUpdated = text("Last update: --", 11f, muted); marketCard.addView(mUpdated); addSpace(marketCard, 8)
 
-        fun section(title: String): LinearLayout {
-            marketCard.addView(text(title, 11f, muted, true)); addSpace(marketCard, 4)
-            val box = column(); marketCard.addView(box); addSpace(marketCard, 8)
-            box.addView(text("Loading...", 12f, muted)); return box
+        val tabBar = row().apply { background = rounded(inputBg, 10); setPadding(dp(4), dp(4), dp(4), dp(4)) }
+        marketCard.addView(tabBar); addSpace(marketCard, 8)
+        val listHost = column(); marketCard.addView(listHost)
+        val marketTabs = listOf("Favorites", "Volume", "Gainers", "Losers")
+        var selectedMarketTab = 0
+        val tabViews = mutableListOf<TextView>()
+        fun styleMarketTabs() {
+            tabViews.forEachIndexed { i, tv ->
+                val sel = i == selectedMarketTab
+                tv.setTextColor(if (sel) yellow else muted)
+                tv.setTypeface(null, if (sel) Typeface.BOLD else Typeface.NORMAL)
+                tv.background = if (sel) rounded(card, 8) else null
+            }
         }
-        val secVol = section("TOP 10 BY 24H QUOTE VOLUME")
-        val secGain = section("TOP 10 GAINERS (24h %)")
-        val secLoss = section("TOP 10 LOSERS (24h %)")
-        val secFav = section("MY FAVORITES")
+        fun volumeText(t: Ticker): String {
+            val q = t.quoteVolume ?: t.volume
+            if (q == null || q <= 0.0) return "--"
+            return when {
+                q >= 1_000_000_000 -> String.format(Locale.US, "%.2fB", q / 1_000_000_000)
+                q >= 1_000_000 -> String.format(Locale.US, "%.2fM", q / 1_000_000)
+                q >= 1_000 -> String.format(Locale.US, "%.2fK", q / 1_000)
+                else -> String.format(Locale.US, "%.2f", q)
+            }
+        }
+        fun renderMarketList(ov: MarketOverview?) {
+            listHost.removeAllViews()
+            if (ov == null || !ov.dataAvailable) {
+                val msg = when {
+                    ov == null -> "Loading..."
+                    else -> "Unable to load live prices. Retrying..."
+                }
+                listHost.addView(text(msg, 12f, if (ov == null) muted else red)); return
+            }
+            when (selectedMarketTab) {
+                0 -> {
+                    val favs = FavoritesStore.load(this)
+                    if (favs.isEmpty()) { listHost.addView(text("No favorites yet. Open a coin and tap Favorite to add it.", 12f, muted)); return }
+                    val items = favs.mapNotNull { ov.symbols[it] }.ifEmpty { favs.map { Ticker(it, null, null, null, null, null) } }
+                    renderMarketRows(listHost, items, volumeTextProvider = { t -> volumeText(t) })
+                }
+                1 -> renderMarketRows(listHost, ov.volumeLeaders.take(10), volumeTextProvider = { t -> volumeText(t) })
+                2 -> renderMarketRows(listHost, ov.gainers.take(10), volumeTextProvider = { t -> volumeText(t) })
+                3 -> renderMarketRows(listHost, ov.losers.take(10), volumeTextProvider = { t -> volumeText(t) })
+            }
+        }
+        marketTabs.forEachIndexed { i, name ->
+            val tv = text(name, 12f, muted, false).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(6), dp(10), dp(6), dp(10))
+                setOnClickListener { if (selectedMarketTab != i) { selectedMarketTab = i; styleMarketTabs(); renderMarketList(lastOverview) } }
+            }
+            tabViews.add(tv)
+            tabBar.addView(tv, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        styleMarketTabs()
 
         fun renderWallet() {
             lifecycleScope.launch {
@@ -251,23 +297,19 @@ class MainActivity : AppCompatActivity() {
                     mStatus.text = "Unavailable - ${ov.error ?: "unable to load live prices"} (retrying)"
                     mStatus.setTextColor(red)
                     mUpdated.text = "Last update: --"
-                    listOf(secVol, secGain, secLoss).forEach { it.removeAllViews(); it.addView(text("Unable to load live prices. Retrying...", 12f, red)) }
-                    renderFavorites(secFav, null)
+                    listHost.removeAllViews(); listHost.addView(text("Unable to load live prices. Retrying...", 12f, red))
                 } else {
                     val label = if (ov.stale) "Stale" else if (ov.live) "Live" else ov.status
                     mStatus.text = "$label - Binance USDT-M Futures (public, read-only)"
                     mStatus.setTextColor(if (ov.stale) yellow else green)
                     mUpdated.text = "Last update: ${ov.lastUpdate ?: "--"} (auto-refresh)"
-                    renderTickerList(secVol, ov.volumeLeaders)
-                    renderTickerList(secGain, ov.gainers)
-                    renderTickerList(secLoss, ov.losers)
-                    renderFavorites(secFav, ov)
+                    renderMarketList(ov)
                     renderWallet()
                 }
             }
             val r = Runnable { refreshMarket() }; refreshRunnable = r; mainHandler.postDelayed(r, 15000)
         }
-        renderWallet(); refreshMarket()
+        renderMarketList(null); renderWallet(); refreshMarket()
     }
 
     private fun percentBadge(pct: Double?): TextView {
@@ -290,74 +332,72 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderTickerList(target: LinearLayout, items: List<Ticker>) {
+    private fun formatCompactVolume(v: Double?): String {
+        val q = v ?: return "--"
+        if (q <= 0.0) return "--"
+        return when {
+            q >= 1_000_000_000 -> String.format(Locale.US, "%.2fB", q / 1_000_000_000)
+            q >= 1_000_000 -> String.format(Locale.US, "%.2fM", q / 1_000_000)
+            q >= 1_000 -> String.format(Locale.US, "%.2fK", q / 1_000)
+            else -> String.format(Locale.US, "%.2f", q)
+        }
+    }
+
+    private fun renderMarketRows(target: LinearLayout, items: List<Ticker>, volumeTextProvider: (Ticker) -> String = { formatCompactVolume(it.quoteVolume) }) {
         target.removeAllViews()
-        if (items.isEmpty()) { target.addView(text("No live data available.", 12f, muted)); return }
+        // Header row
+        val header = row().apply { setPadding(dp(10), dp(6), dp(10), dp(6)) }
+        header.addView(text("Symbol", 11f, muted, true), LinearLayout.LayoutParams(0, -2, 1.15f).apply { marginEnd = dp(8) })
+        header.addView(text("Price", 11f, muted, true).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END }, LinearLayout.LayoutParams(0, -2, 1.0f).apply { marginEnd = dp(8) })
+        header.addView(text("24h %", 11f, muted, true).apply { gravity = Gravity.CENTER; textAlignment = View.TEXT_ALIGNMENT_CENTER }, LinearLayout.LayoutParams(dp(78), -2))
+        header.addView(text("24h Vol", 11f, muted, true).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END }, LinearLayout.LayoutParams(0, -2, 0.95f))
+        target.addView(header)
+        target.addView(View(this).apply { setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.divider)) }, LinearLayout.LayoutParams(-1, dp(1)))
+
+        if (items.isEmpty()) { target.addView(text("No data available.", 12f, muted).apply { setPadding(dp(10), dp(12), dp(10), dp(12)) }); return }
         items.take(10).forEach { t ->
             val line = row().apply {
                 isClickable = true; isFocusable = true
-                setPadding(dp(10), dp(13), dp(10), dp(13))
+                setPadding(dp(10), dp(12), dp(10), dp(12))
                 setOnClickListener { openDetail(t.symbol) }
             }
-            // 1. Symbol (neutral)
-            line.addView(text(t.symbol, 13f, white, true), LinearLayout.LayoutParams(0, -2, 1.15f).apply { marginEnd = dp(10) })
-            // 2. Price (neutral)
+            line.addView(text(t.symbol, 13f, white, true), LinearLayout.LayoutParams(0, -2, 1.15f).apply { marginEnd = dp(8) })
             line.addView(priceTv(PriceFormatter.formatPrice(t.lastPrice ?: t.markPrice), 12f, white).apply {
                 gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END
-            }, LinearLayout.LayoutParams(0, -2, 1.0f).apply { marginEnd = dp(10) })
-            // 3. Change % box - fixed-width slot keeps every badge aligned
+            }, LinearLayout.LayoutParams(0, -2, 1.0f).apply { marginEnd = dp(8) })
             val badgeWrap = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                gravity = Gravity.CENTER
             }
             badgeWrap.addView(percentBadge(t.priceChangePercent), LinearLayout.LayoutParams(dp(70), dp(28)))
             line.addView(badgeWrap, LinearLayout.LayoutParams(dp(78), -2))
+            line.addView(priceTv(volumeTextProvider(t), 11.5f, muted).apply {
+                gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+            }, LinearLayout.LayoutParams(0, -2, 0.95f))
             target.addView(line)
             target.addView(View(this).apply { setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.divider)) }, LinearLayout.LayoutParams(-1, dp(1)))
         }
     }
 
+    // Backward-compatible wrappers if referenced elsewhere
+    private fun renderTickerList(target: LinearLayout, items: List<Ticker>) = renderMarketRows(target, items)
     private fun renderFavorites(target: LinearLayout, ov: MarketOverview?) {
-        target.removeAllViews()
         val favs = FavoritesStore.load(this)
-        if (favs.isEmpty()) { target.addView(text("No favorites yet. Open a coin and tap Favorite.", 12f, muted)); return }
-        for (sym in favs) {
-            val t = ov?.symbols?.get(sym)
-            val line = row().apply { isClickable = true; setPadding(dp(10), dp(13), dp(10), dp(13)); setOnClickListener { openDetail(sym) } }
-            line.addView(text(sym, 13f, white, true), LinearLayout.LayoutParams(0, -2, 1.15f).apply { marginEnd = dp(10) })
-            line.addView(priceTv(PriceFormatter.formatPrice(t?.lastPrice ?: t?.markPrice), 12f, white).apply {
-                gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END
-            }, LinearLayout.LayoutParams(0, -2, 1.0f).apply { marginEnd = dp(10) })
-            val badgeWrap = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            }
-            badgeWrap.addView(percentBadge(t?.priceChangePercent), LinearLayout.LayoutParams(dp(70), dp(28)))
-            line.addView(badgeWrap, LinearLayout.LayoutParams(dp(78), -2))
-            target.addView(line)
-            target.addView(View(this).apply { setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.divider)) }, LinearLayout.LayoutParams(-1, dp(1)))
-        }
+        val items = if (ov == null) favs.map { Ticker(it, null, null, null, null, null, null, null) } else favs.mapNotNull { ov.symbols[it] }.ifEmpty { favs.map { Ticker(it, null, null, null, null, null, null, null) } }
+        if (favs.isEmpty()) { target.removeAllViews(); target.addView(text("No favorites yet. Open a coin and tap Favorite.", 12f, muted)); return }
+        renderMarketRows(target, items)
     }
 
     // ---------------- TRADE (Manual tab renamed) ----------------
     private fun manualPage() /* Trade tab */ {
         stopRefresh()
         content.removeAllViews()
-        val outer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val stageBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; background = rounded(card, 12); setPadding(dp(12), dp(10), dp(12), dp(10)) }
-        stageBar.addView(text("${stage().title}", 13f, if (stage()==TradingStage.STAGE_3) red else green, true), LinearLayout.LayoutParams(0, -2, 1f))
-        stageBar.addView(Button(this).apply { text = "Change Stage"; textSize = 11f; isAllCaps = false; setTextColor(0xFF000000.toInt()); background = rounded(yellow, 10); setOnClickListener {
-            val opts = TradingStage.entries.map { it.title }.toTypedArray()
-            AlertDialog.Builder(this@MainActivity).setTitle("Select Trading Stage").setItems(opts) { _, i -> StageStore.setCurrent(this@MainActivity, TradingStage.entries[i]); updateTopStatus(); showPage("Trade") }.show()
-        } })
-        outer.addView(stageBar, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(12), dp(8), dp(12), dp(4)) })
-        val view = LayoutInflater.from(this).inflate(R.layout.activity_manual_entry, outer, false)
-        outer.addView(view)
-        content.addView(ScrollView(this).apply { addView(outer) })
+        val view = LayoutInflater.from(this).inflate(R.layout.activity_manual_entry, content, false)
+        content.addView(view)
 
-        // Market Statistics are shown in Home coin details only
         view.findViewById<View?>(R.id.boxStats)?.visibility = View.GONE
 
+        val stageSpinner = view.findViewById<Spinner>(R.id.spStageSelect)
         val symbolInput = view.findViewById<AutoCompleteTextView>(R.id.actvSymbol)
         val leverageSpinner = view.findViewById<Spinner>(R.id.spEntryLeverage)
         val marginInput = view.findViewById<EditText>(R.id.etEntryMargin)
@@ -379,20 +419,51 @@ class MainActivity : AppCompatActivity() {
         fun selectedSym(): String = symbolInput.text?.toString()?.trim()?.uppercase(Locale.US).orEmpty()
         fun selectedLev(): Int = LeverageConfig.SUPPORTED_LEVERAGES.getOrElse(leverageSpinner.selectedItemPosition) { 6 }
 
+        // Compact stage selector (preserves stage management)
+        stageSpinner.adapter = createDarkSpinnerAdapter(TradingStage.entries.map { it.shortLabel })
+        stageSpinner.setSelection(TradingStage.entries.indexOf(stage()).coerceAtLeast(0))
+        stageSpinner.setPopupBackgroundDrawable(rounded(inputBg, 10))
+        stageSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                val sel = TradingStage.entries.getOrNull(pos) ?: return
+                if (sel != stage()) { StageStore.setCurrent(this@MainActivity, sel); updateTopStatus(); showPage("Trade") }
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+
         leverageSpinner.adapter = createDarkSpinnerAdapter(LeverageConfig.SUPPORTED_LEVERAGES.map { "${it}x" })
         leverageSpinner.setSelection(LeverageConfig.SUPPORTED_LEVERAGES.indexOf(6).coerceAtLeast(0))
         leverageSpinner.setPopupBackgroundDrawable(rounded(inputBg, 10))
         symbolInput.setAdapter(ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, mutableListOf<String>()))
 
-        fun addSummaryRow(label: String, value: String, valueColor: Int = white, bold: Boolean = true) {
+        fun previewRow(parent: LinearLayout, label: String, value: String, valueColor: Int = white, prominent: Boolean = false) {
             val line = row().apply { layoutParams = LinearLayout.LayoutParams(-1, -2) }
-            line.addView(text(label, 12f, muted), LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(24) })
-            line.addView(text(value, 12f, valueColor, bold).apply {
+            line.addView(text(label, 12f, muted), LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(16) })
+            line.addView(text(value, if (prominent) 13.5f else 12.5f, valueColor, true).apply {
                 gravity = Gravity.END
                 textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+                typeface = Typeface.MONOSPACE
             })
-            summaryBox.addView(line)
-            summaryBox.addView(View(this), LinearLayout.LayoutParams(-1, dp(6)))
+            parent.addView(line)
+            addSpace(parent, 6)
+        }
+
+        fun previewGrid2(parent: LinearLayout, leftLabel: String, leftValue: String, leftColor: Int, rightLabel: String, rightValue: String, rightColor: Int) {
+            val line = row().apply { layoutParams = LinearLayout.LayoutParams(-1, -2) }
+            val l = column().apply { layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) } }
+            l.addView(text(leftLabel, 11f, muted))
+            l.addView(text(leftValue, 12.5f, leftColor, true).apply { typeface = Typeface.MONOSPACE })
+            val r = column().apply { layoutParams = LinearLayout.LayoutParams(0, -2, 1f) }
+            r.addView(text(rightLabel, 11f, muted).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END })
+            r.addView(text(rightValue, 12.5f, rightColor, true).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END; typeface = Typeface.MONOSPACE })
+            line.addView(l); line.addView(r)
+            parent.addView(line)
+            addSpace(parent, 8)
+        }
+
+        fun sectionTitle(parent: LinearLayout, title: String) {
+            parent.addView(text(title, 12f, yellow, true))
+            addSpace(parent, 6)
         }
 
         fun updateSummary() {
@@ -402,38 +473,47 @@ class MainActivity : AppCompatActivity() {
             val profile = LeverageConfig.requireProfile(lev)
             val intended = entryPriceInput.text.toString().toDoubleOrNull()
             val qty = if (intended != null && intended > 0 && margin > 0) (margin * lev) / intended else null
-            val tsLong = if (intended != null && intended > 0) intended * (1 + profile.trailingActivationPercent/100.0) else null
+            val notional = if (intended != null && intended > 0 && qty != null) intended * qty else null
+            val tsLongAct = if (intended != null && intended > 0) intended * (1 + profile.trailingActivationPercent/100.0) else null
             val slLong = if (intended != null && intended > 0) intended * (1 - profile.slPercent/100.0) else null
-            val tsShort = if (intended != null && intended > 0) intended * (1 - profile.trailingActivationPercent/100.0) else null
+            val tsShortAct = if (intended != null && intended > 0) intended * (1 - profile.trailingActivationPercent/100.0) else null
             val slShort = if (intended != null && intended > 0) intended * (1 + profile.slPercent/100.0) else null
             summaryBox.removeAllViews()
-            addSummaryRow("Stage", stage().title, if (stage()==TradingStage.STAGE_3) red else green)
-            addSummaryRow("Symbol", sym)
-            addSummaryRow("Live Price", "${PriceFormatter.formatPrice(currentLivePrice)} USDT")
-            addSummaryRow("Intended LIMIT Entry", "${PriceFormatter.formatPrice(intended)} USDT")
-            addSummaryRow("Margin", "${PriceFormatter.formatUsdt(margin)} / ${lev}x")
-            addSummaryRow("Fixed % (TS act / cb)", "${profile.trailingActivationPercent}% / ${profile.callbackRatePercent}%")
-            addSummaryRow("Fixed % (SL / New Entry Dist)", "${profile.slPercent}% / ${profile.newEntryDistancePercent}%")
-            addSummaryRow("Estimated Qty", if (qty != null) PriceFormatter.formatQty(qty) else "--")
-            addSummaryRow("Long TS act / SL", "${PriceFormatter.formatPrice(tsLong)} / ${PriceFormatter.formatPrice(slLong)}", green)
-            addSummaryRow("Short TS act / SL", "${PriceFormatter.formatPrice(tsShort)} / ${PriceFormatter.formatPrice(slShort)}", red)
-            val note = text("All entries are LIMIT orders. Stage 1/2 simulated only. No MARKET orders.", 11f, muted)
-            summaryBox.addView(note)
+            sectionTitle(summaryBox, "A. Order Summary")
+            previewRow(summaryBox, "Stage", stage().shortLabel, if (stage()==TradingStage.STAGE_3) red else green)
+            previewRow(summaryBox, "Symbol", sym)
+            previewRow(summaryBox, "Live Price", if (currentLivePrice != null) "${PriceFormatter.formatPrice(currentLivePrice)} USDT" else "--")
+            previewRow(summaryBox, "Intended Entry Price", if (intended != null) "${PriceFormatter.formatPrice(intended)} USDT" else "--")
+            previewRow(summaryBox, "Margin", "${PriceFormatter.formatUsdt(margin)} USDT")
+            previewRow(summaryBox, "Leverage", "${lev}x")
+            previewRow(summaryBox, "Estimated Quantity", if (qty != null) PriceFormatter.formatQty(qty) else "--")
+            previewRow(summaryBox, "Estimated Notional", if (notional != null) "${PriceFormatter.formatUsdt(notional)} USDT" else "--")
+            addSpace(summaryBox, 4)
+            sectionTitle(summaryBox, "B. Trailing Stop")
+            previewRow(summaryBox, "Activation Percentage", "${PriceFormatter.formatPercent(profile.trailingActivationPercent)}")
+            previewRow(summaryBox, "Callback Rate", "${PriceFormatter.formatPercent(profile.callbackRatePercent)}")
+            previewGrid2(summaryBox,
+                "LONG Activation Price", if (tsLongAct != null) PriceFormatter.formatPrice(tsLongAct) else "--", green,
+                "SHORT Activation Price", if (tsShortAct != null) PriceFormatter.formatPrice(tsShortAct) else "--", red)
+            sectionTitle(summaryBox, "C. Risk Management")
+            previewGrid2(summaryBox,
+                "LONG Stop Loss Price", if (slLong != null) PriceFormatter.formatPrice(slLong) else "--", red,
+                "SHORT Stop Loss Price", if (slShort != null) PriceFormatter.formatPrice(slShort) else "--", red)
         }
 
         fun loadSymbolLive(sym: String) {
             if (sym.isBlank() || !sym.endsWith("USDT")) return
             val myGen = ++refreshGen
-            liveStatus.setTextColor(muted); liveStatus.text = "Loading live price for $sym..."
+            liveStatus.setTextColor(muted); liveStatus.text = "Loading..."
             fun tick() {
                 if (myGen != refreshGen || currentPage != "Trade" || selectedSym() != sym) return
                 lifecycleScope.launch {
                     val px = marketRepo.getMarkPrice(sym)
                     if (myGen != refreshGen || currentPage != "Trade" || selectedSym() != sym) return@launch
                     currentLivePrice = px
-                    livePriceTv.text = "Live price: ${PriceFormatter.formatPrice(currentLivePrice)} USDT"
-                    liveStatus.text = if (currentLivePrice != null) "Live public mark/price (auto-refresh)" else "Price unavailable - retrying"
-                    liveStatus.setTextColor(if (currentLivePrice != null) muted else red)
+                    livePriceTv.text = if (currentLivePrice != null) "${PriceFormatter.formatPrice(currentLivePrice)} USDT" else "--"
+                    liveStatus.text = if (currentLivePrice != null) "Live" else "Unavailable"
+                    liveStatus.setTextColor(if (currentLivePrice != null) green else red)
                     if (!userEditedEntryPrice && currentLivePrice != null && entryPriceInput.text.isNullOrBlank()) {
                         entryPriceInput.setText(PriceFormatter.formatPrice(currentLivePrice))
                     }
@@ -586,6 +666,7 @@ class MainActivity : AppCompatActivity() {
                     val protectiveSlOrders = allOrders.filter { it.orderType == "ENTRY_SL" }
                     val reentries = dao.getPendingReentryPlans(sid).filter { it.status !in listOf("EXECUTED","CANCELLED","FAILED") }
                     val history = dao.getHistoryCloses(sid, 500)
+                    val orderHistory = dao.getCompletedOrders(sid, 300)
                     // Conditional opposite triggers (awaiting averaging execution)
                     val conditionalOpposites = cyclesAll.filter { c ->
                         c.oppositeEnabled && !c.oppositeDone && c.status in listOf("PENDING_ENTRY","ACTIVE","CLOSING") &&
@@ -595,7 +676,8 @@ class MainActivity : AppCompatActivity() {
                     val trailingConditionalCount = openPositionCount // one trailing stop per open entry
                     val basicCount = openEntryOrders.size + reentries.size
                     val conditionalCount = trailingConditionalCount + protectiveSlOrders.size + conditionalOpposites.size
-                    stylePrimary(openPositionCount, basicCount, history.size)
+                    val historyCount = history.size + orderHistory.size
+                    stylePrimary(openPositionCount, basicCount, historyCount)
                     subBar.visibility = if (primaryTab == 2) View.GONE else View.VISIBLE
                     if (primaryTab == 0) styleSub("Open ($openPositionCount)", "Closed (${history.size})")
                     else if (primaryTab == 1) styleSub("Basic ($basicCount)", "Conditional ($conditionalCount)")
@@ -603,7 +685,7 @@ class MainActivity : AppCompatActivity() {
                     when (primaryTab) {
                         0 -> if (positionSub == 0) renderPositionsOpen(body, openPositions, prices, priceState) else renderPositionsClosed(body, history)
                         1 -> if (orderSub == 0) renderOrdersBasic(body, openEntryOrders, reentries, prices, priceState) else renderOrdersConditional(body, openPositions, protectiveSlOrders, conditionalOpposites, cycleById, prices, priceState)
-                        2 -> renderHistoryPrimary(body, history)
+                        2 -> renderHistoryPrimary(body, history, orderHistory)
                     }
                 } catch (e: Exception) {
                     body.removeAllViews(); body.addView(text("Unable to load", 12f, red))
@@ -860,22 +942,60 @@ class MainActivity : AppCompatActivity() {
         if (!any) body.addView(text("No conditional orders.", 13f, muted))
     }
 
-    private fun renderHistoryPrimary(body: LinearLayout, history: List<PaperHistoryCloseEntity>) {
-        if (history.isEmpty()) { body.addView(text("No history.", 13f, muted)); return }
+    private fun renderHistoryPrimary(body: LinearLayout, history: List<PaperHistoryCloseEntity>, orderHistory: List<PaperOrderEntity>) {
+        if (history.isEmpty() && orderHistory.isEmpty()) { body.addView(text("No history.", 13f, muted)); return }
         val tf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
-        for (h in history) {
-            val box = makeItemCard(body)
-            val header = row()
-            header.addView(text("${h.symbol} ${h.direction}", 15f, if (h.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
-            header.addView(text(h.closingReason, 12f, when (h.closingReason) { "TP" -> green; "SL","LIQUIDATION" -> red; else -> white }, true))
-            box.addView(header)
-            addLabel(box, "Entry", PriceFormatter.formatPrice(h.entryFillPrice), white, true)
-            addLabel(box, "Exit", PriceFormatter.formatPrice(h.exitFillPrice), white, true)
-            addLabel(box, "Qty", PriceFormatter.formatQty(h.closedQuantity))
-            addLabel(box, "Margin / Lev", "${PriceFormatter.formatUsdt(h.entryMargin)} / ${h.leverage}x")
-            addLabel(box, "Realized PNL", "${PriceFormatter.formatPnl(h.realizedPnlUsdt)} (${PriceFormatter.formatPercent(h.realizedPnlPercent)})", pnlColor(h.realizedPnlUsdt), true)
-            addLabel(box, "Entry", tf.format(java.util.Date(h.entryTimestamp)))
-            addLabel(box, "Exit", tf.format(java.util.Date(h.exitTimestamp)))
+
+        if (history.isNotEmpty()) {
+            body.addView(text("Position History", 13f, yellow, true))
+            addSpace(body, 6)
+            for (h in history) {
+                val box = makeItemCard(body)
+                val header = row()
+                header.addView(text("${h.symbol} ${h.direction}", 15f, if (h.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+                header.addView(text(h.closingReason, 12f, when (h.closingReason) { "TP", "TRAILING_STOP" -> green; "SL","LIQUIDATION" -> red; else -> white }, true))
+                box.addView(header)
+                addLabel(box, "Entry Price", PriceFormatter.formatPrice(h.entryFillPrice), white, true)
+                addLabel(box, "Exit Price", PriceFormatter.formatPrice(h.exitFillPrice), white, true)
+                addLabel(box, "Quantity", PriceFormatter.formatQty(h.closedQuantity))
+                addLabel(box, "Margin / Leverage", "${PriceFormatter.formatUsdt(h.entryMargin)} USDT / ${h.leverage}x")
+                addLabel(box, "Realized PNL", "${PriceFormatter.formatPnl(h.realizedPnlUsdt)} USDT (${PriceFormatter.formatPercent(h.realizedPnlPercent)})", pnlColor(h.realizedPnlUsdt), true)
+                addLabel(box, "Entry Time", tf.format(java.util.Date(h.entryTimestamp)))
+                addLabel(box, "Exit Time", tf.format(java.util.Date(h.exitTimestamp)))
+            }
+            addSpace(body, 8)
+        }
+
+        if (orderHistory.isNotEmpty()) {
+            body.addView(text("Order History", 13f, yellow, true))
+            addSpace(body, 6)
+            for (o in orderHistory) {
+                val status = when {
+                    o.status == "FILLED" -> "FILLED"
+                    o.status == "ACTIVE" -> "NEW"
+                    o.status == "CANCELLING" -> "CANCELLING"
+                    o.status == "CANCELLED" || o.status == "CANCEL_VERIFIED" -> "CANCELLED"
+                    o.status == "REJECTED" || o.status == "FAILED" -> "REJECTED"
+                    o.status == "PARTIALLY_FILLED" || (o.filledQuantity > 1e-12 && o.quantity > 1e-12 && o.filledQuantity + 1e-12 < o.quantity) -> "PARTIALLY FILLED"
+                    else -> o.status
+                }
+                // Skip items that are not truly completed/executed history records in a confusing way
+                if (status == "NEW" || status == "CANCELLING") continue
+                val box = makeItemCard(body)
+                val header = row()
+                header.addView(text("${o.symbol} ${o.direction}", 15f, if (o.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+                header.addView(text(status, 12f, when (status) { "FILLED" -> green; "PARTIALLY FILLED" -> yellow; "CANCELLED" -> muted; "REJECTED" -> red; else -> white }, true))
+                box.addView(header)
+                addLabel(box, "Order Type", when (o.orderType) { "ENTRY_LIMIT" -> "LIMIT"; "ENTRY_SL" -> "STOP LOSS"; else -> o.orderType }, yellow, true)
+                addLabel(box, "Order ID", o.exchangeOrderId ?: o.clientOrderId, muted)
+                addLabel(box, "Trigger / Limit Price", PriceFormatter.formatPrice(if (o.limitPrice != null && o.limitPrice > 0) o.limitPrice else o.triggerPrice), white, true)
+                val qtyText = if (o.quantity > 1e-12) PriceFormatter.formatQty(o.quantity) else if (o.filledQuantity > 1e-12) PriceFormatter.formatQty(o.filledQuantity) else "--"
+                addLabel(box, "Order Quantity", qtyText, white, true)
+                if (o.filledQuantity > 1e-12) addLabel(box, "Filled Quantity", PriceFormatter.formatQty(o.filledQuantity), white, true)
+                if (o.filledPrice != null) addLabel(box, "Average Fill Price", PriceFormatter.formatPrice(o.filledPrice), white, true)
+                addLabel(box, "Created At", fmtDateTime(o.createdAt), muted)
+                addLabel(box, "Updated At", fmtDateTime(o.executedAt ?: o.updatedAt), muted)
+            }
         }
     }
 

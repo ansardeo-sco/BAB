@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg_primary"
@@ -9,101 +10,252 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="14dp">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Manual Entry"
-            android:textColor="@color/text_primary"
-            android:textSize="22sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/txtManualModeBadge"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:background="@color/bg_card"
-            android:padding="8dp"
-            android:text="LIMIT ENTRY ONLY • simulated stages never submit real orders"
-            android:textColor="@color/accent_yellow"
-            android:textSize="11sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="USDT-M Symbol"
-            android:textColor="@color/text_muted"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-
-        <AutoCompleteTextView
-            android:id="@+id/actvSymbol"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:background="@color/bg_input"
-            android:completionThreshold="1"
-            android:hint="Search symbol (e.g. BTCUSDT)"
-            android:inputType="textCapCharacters"
-            android:padding="12dp"
-            android:textColor="@color/text_primary"
-            android:textColorHint="@color/text_muted" />
-
-        <TextView
-            android:id="@+id/txtLivePrice"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Live price: --"
-            android:textColor="@color/text_primary"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/txtLivePriceStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="Select a symbol to load live price and stats."
-            android:textColor="@color/text_muted"
-            android:textSize="11sp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="Intended Entry Price (actual LIMIT price)"
-            android:textColor="@color/text_muted"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-
-        <EditText
-            android:id="@+id/etEntryPrice"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:background="@color/bg_input"
-            android:hint="Editable LIMIT price"
-            android:inputType="numberDecimal"
-            android:padding="12dp"
-            android:textColor="@color/text_primary"
-            android:textColorHint="@color/text_muted" />
-
-        <TextView
-            android:id="@+id/txtPriceNote"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="This is the actual LIMIT entry price. It is not replaced by market price and never submitted as MARKET."
-            android:textColor="@color/text_muted"
-            android:textSize="11sp" />
+        android:padding="12dp">
 
         <LinearLayout
-            android:id="@+id/boxStats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/txtManualTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Manual Entry"
+                android:textColor="@color/text_primary"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/txtManualModeBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@color/bg_input"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:text="LIMIT ONLY"
+                android:textColor="@color/accent_yellow"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/boxEntryForm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@color/bg_card"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <!-- Stage -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="44dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Stage"
+                    android:textColor="@color/text_muted"
+                    android:textSize="13sp" />
+
+                <Spinner
+                    android:id="@+id/spStageSelect"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1.35"
+                    android:background="@color/bg_input"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="4dp" />
+            </LinearLayout>
+
+            <!-- Symbol -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:minHeight="44dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Symbol"
+                    android:textColor="@color/text_muted"
+                    android:textSize="13sp" />
+
+                <AutoCompleteTextView
+                    android:id="@+id/actvSymbol"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1.35"
+                    android:background="@color/bg_input"
+                    android:completionThreshold="1"
+                    android:hint="BTCUSDT"
+                    android:inputType="textCapCharacters"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:singleLine="true"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_muted"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- Live Price -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:minHeight="40dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Live Price"
+                    android:textColor="@color/text_muted"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/txtLivePrice"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1.35"
+                    android:background="@color/bg_input"
+                    android:ellipsize="end"
+                    android:gravity="center_vertical|end"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:singleLine="true"
+                    android:text="--"
+                    android:textColor="@color/text_primary"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/txtLivePriceStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:gravity="end"
+                android:text=""
+                android:textColor="@color/text_muted"
+                android:textSize="10sp" />
+
+            <!-- Entry Price -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical"
+                android:minHeight="44dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Entry Price"
+                    android:textColor="@color/text_muted"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/etEntryPrice"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1.35"
+                    android:background="@color/bg_input"
+                    android:gravity="center_vertical|end"
+                    android:hint="LIMIT price"
+                    android:inputType="numberDecimal"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:singleLine="true"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_muted"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- Margin -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:minHeight="44dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Margin (USDT)"
+                    android:textColor="@color/text_muted"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/etEntryMargin"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1.35"
+                    android:background="@color/bg_input"
+                    android:gravity="center_vertical|end"
+                    android:hint="0.00"
+                    android:inputType="numberDecimal"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:singleLine="true"
+                    android:text="2.0"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_muted"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- Leverage -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:minHeight="44dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Leverage"
+                    android:textColor="@color/text_muted"
+                    android:textSize="13sp" />
+
+                <Spinner
+                    android:id="@+id/spEntryLeverage"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1.35"
+                    android:background="@color/bg_input"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="4dp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Trade Preview -->
+        <LinearLayout
+            android:id="@+id/boxEntrySummary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
@@ -114,67 +266,22 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Market Statistics (actual Binance public data)"
+                android:text="Trade Preview"
                 android:textColor="@color/accent_yellow"
-                android:textSize="12sp"
+                android:textSize="13sp"
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/txtStatsStatus"
+                android:id="@+id/txtPreviewContent"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Loading..."
+                android:layout_marginTop="6dp"
+                android:text="--"
                 android:textColor="@color/text_muted"
-                android:textSize="11sp" />
-
-            <TextView android:id="@+id/txtStats24h" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:textColor="@color/text_primary" android:textSize="12sp" />
-            <TextView android:id="@+id/txtStats7d" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:textColor="@color/text_primary" android:textSize="12sp" />
-            <TextView android:id="@+id/txtStatsRsi" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:textColor="@color/text_primary" android:textSize="12sp" />
-            <TextView android:id="@+id/txtStatsDist" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:textColor="@color/text_muted" android:textSize="11sp" />
+                android:textSize="12sp" />
         </LinearLayout>
 
-
-
-        <EditText
-            android:id="@+id/etEntryMargin"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:background="@color/bg_input"
-            android:hint="Margin (USDT)"
-            android:inputType="numberDecimal"
-            android:padding="12dp"
-            android:text="2.0"
-            android:textColor="@color/text_primary"
-            android:textColorHint="@color/text_muted" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Leverage (3x-20x, fixed % table)"
-            android:textColor="@color/text_muted"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-
-        <Spinner
-            android:id="@+id/spEntryLeverage"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:background="@color/bg_input"
-            android:padding="8dp" />
-
-        <LinearLayout
-            android:id="@+id/boxEntrySummary"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:background="@color/bg_card"
-            android:orientation="vertical"
-            android:padding="12dp" />
-
+        <!-- Buttons -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -191,6 +298,7 @@
                 android:text="Open Long"
                 android:textAllCaps="false"
                 android:textColor="@color/text_primary"
+                android:textSize="15sp"
                 android:textStyle="bold"
                 app:backgroundTint="@null" />
 
@@ -208,6 +316,7 @@
                 android:text="Open Short"
                 android:textAllCaps="false"
                 android:textColor="@color/text_primary"
+                android:textSize="15sp"
                 android:textStyle="bold"
                 app:backgroundTint="@null" />
         </LinearLayout>
@@ -220,7 +329,20 @@
             android:textColor="@color/text_muted"
             android:textSize="12sp" />
 
-        <!-- kept for backward layout compatibility if referenced -->
+        <!-- Hidden/compatibility views referenced by older code paths -->
+        <LinearLayout
+            android:id="@+id/boxStats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+            <TextView android:id="@+id/txtStatsStatus" android:layout_width="match_parent" android:layout_height="wrap_content" />
+            <TextView android:id="@+id/txtStats24h" android:layout_width="match_parent" android:layout_height="wrap_content" />
+            <TextView android:id="@+id/txtStats7d" android:layout_width="match_parent" android:layout_height="wrap_content" />
+            <TextView android:id="@+id/txtStatsRsi" android:layout_width="match_parent" android:layout_height="wrap_content" />
+            <TextView android:id="@+id/txtStatsDist" android:layout_width="match_parent" android:layout_height="wrap_content" />
+        </LinearLayout>
+        <TextView android:id="@+id/txtPriceNote" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
         <Spinner android:id="@+id/spEntrySymbol" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
     </LinearLayout>
 </ScrollView>
