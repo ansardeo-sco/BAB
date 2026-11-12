@@ -4,6 +4,28 @@ plugins {
     id 'kotlin-kapt'
 }
 
+def babVersionCode = (project.findProperty("versionCodeOverride")
+        ?: System.getenv("VERSION_CODE_OVERRIDE")
+        ?: System.getenv("GITHUB_RUN_NUMBER")
+        ?: "3").toString().toInteger()
+def babVersionName = (project.findProperty("versionNameOverride")
+        ?: System.getenv("VERSION_NAME_OVERRIDE")
+        ?: "1.0.0-bab.${babVersionCode}").toString()
+
+def babKeystorePath = (project.findProperty("BAB_KEYSTORE_PATH")
+        ?: System.getenv("BAB_KEYSTORE_PATH")
+        ?: "").toString()
+def babKeystorePassword = (project.findProperty("BAB_KEYSTORE_PASSWORD")
+        ?: System.getenv("BAB_KEYSTORE_PASSWORD")
+        ?: "").toString()
+def babKeyAlias = (project.findProperty("BAB_KEY_ALIAS")
+        ?: System.getenv("BAB_KEY_ALIAS")
+        ?: "").toString()
+def babKeyPassword = (project.findProperty("BAB_KEY_PASSWORD")
+        ?: System.getenv("BAB_KEY_PASSWORD")
+        ?: "").toString()
+def hasBabSigning = babKeystorePath && file(babKeystorePath).exists() && babKeystorePassword && babKeyAlias && babKeyPassword
+
 android {
     namespace 'com.ansardeo.binancebot'
     compileSdk 34
@@ -12,10 +34,21 @@ android {
         applicationId "com.ansardeo.bab"
         minSdk 24
         targetSdk 34
-        versionCode 3
-        versionName "1.0.0-bab"
+        versionCode babVersionCode
+        versionName babVersionName
         // No backend required for BAB Stage 1/2. Stage 3 live integration is scaffolded/disabled.
         buildConfigField "String", "BACKEND_BASE_URL", "\"\""
+    }
+
+    signingConfigs {
+        if (hasBabSigning) {
+            bab {
+                storeFile file(babKeystorePath)
+                storePassword babKeystorePassword
+                keyAlias babKeyAlias
+                keyPassword babKeyPassword
+            }
+        }
     }
 
     buildFeatures {
@@ -26,10 +59,16 @@ android {
     buildTypes {
         debug {
             minifyEnabled false
+            if (hasBabSigning) {
+                signingConfig signingConfigs.bab
+            }
         }
 
         release {
             minifyEnabled false
+            if (hasBabSigning) {
+                signingConfig signingConfigs.bab
+            }
         }
     }
 

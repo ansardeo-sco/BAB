@@ -27,6 +27,31 @@ jobs:
         with:
           gradle-version: '8.2.1'
 
+      - name: Restore consistent signing key (GitHub Secrets)
+        env:
+          BAB_KEYSTORE_BASE64: ${{ secrets.BAB_KEYSTORE_BASE64 }}
+          BAB_KEYSTORE_PASSWORD: ${{ secrets.BAB_KEYSTORE_PASSWORD }}
+          BAB_KEY_ALIAS: ${{ secrets.BAB_KEY_ALIAS }}
+          BAB_KEY_PASSWORD: ${{ secrets.BAB_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # Auto-increasing versionCode for every workflow run (update-compatible APKs).
+          echo "VERSION_CODE_OVERRIDE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "VERSION_NAME_OVERRIDE=1.0.0-bab.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          # Pass signing credentials only if provided via GitHub Secrets (never committed).
+          if [ -n "${BAB_KEYSTORE_PASSWORD:-}" ]; then echo "BAB_KEYSTORE_PASSWORD=$BAB_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"; fi
+          if [ -n "${BAB_KEY_ALIAS:-}" ]; then echo "BAB_KEY_ALIAS=$BAB_KEY_ALIAS" >> "$GITHUB_ENV"; fi
+          if [ -n "${BAB_KEY_PASSWORD:-}" ]; then echo "BAB_KEY_PASSWORD=$BAB_KEY_PASSWORD" >> "$GITHUB_ENV"; fi
+
+          if [ -n "${BAB_KEYSTORE_BASE64:-}" ]; then
+            echo "$BAB_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/bab-release.keystore"
+            echo "BAB_KEYSTORE_PATH=$RUNNER_TEMP/bab-release.keystore" >> "$GITHUB_ENV"
+            echo "Signing keystore restored from secrets for update-compatible builds."
+          else
+            echo "::warning::BAB_KEYSTORE_BASE64 secret not set. CI will use the runner's default debug keystore (ephemeral), so successive CI APKs may NOT install as updates over installs signed with a different key. Configure BAB_KEYSTORE_BASE64, BAB_KEYSTORE_PASSWORD, BAB_KEY_ALIAS, BAB_KEY_PASSWORD with the ORIGINAL signing key (do not generate/replace silently)."
+          fi
+          echo "applicationId=com.ansardeo.bab versionCode=$GITHUB_RUN_NUMBER"
+
       - name: Verify Android project
         run: |
           test -f settings.gradle
@@ -109,11 +134,40 @@ jobs:
           except Exception as e: print('post failed', e); print(body)
           PY
 
-      - name: Verify APK
+      - name: Verify APK (package, version, signing)
         if: success()
         run: |
-          test -s app/build/outputs/apk/debug/Binance-Bot.apk
-          ls -lh app/build/outputs/apk/debug/Binance-Bot.apk
+          APK=app/build/outputs/apk/debug/Binance-Bot.apk
+          test -s "$APK"
+          ls -lh "$APK"
+          echo "---- package/version ----"
+          AAPT2=""
+          if [ -n "${ANDROID_HOME:-}" ]; then
+            AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -n 1 || true)
+          fi
+          if [ -n "$AAPT2" ]; then
+            "$AAPT2" dump badging "$APK" | grep -E "package:|application-label:|versionCode|versionName" || true
+          else
+            echo "aapt2 not found"
+          fi
+          echo "---- signing certificate ----"
+          APKSIGNER=""
+          if [ -n "${ANDROID_HOME:-}" ]; then
+            APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n 1 || true)
+          fi
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$APK" || true
+          elif command -v keytool >/dev/null 2>&1; then
+            keytool -printcert -jarfile "$APK" || true
+          else
+            echo "apksigner/keytool not found"
+          fi
+          echo "---- update-compat note ----"
+          if [ -z "${BAB_KEYSTORE_PATH:-}" ]; then
+            echo "WARNING: built without BAB signing secrets; certificate may differ from previously installed APKs."
+          else
+            echo "Built with configured BAB signing key and run-based versionCode."
+          fi
 
       - name: Upload APK artifact
         if: success()
