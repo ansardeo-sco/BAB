@@ -110,10 +110,13 @@ class Stage1SimulationLogicTest {
         assertTrue(shortPos.open)
     }
 
-    @Test fun stageGuards_noAuthenticatedOrdersFromSimulatedStages() {
-        assertTrue(TradingStage.STAGE_1.isSimulated)
-        assertTrue(TradingStage.STAGE_2.isSimulated)
-        assertFalse(TradingStage.STAGE_3.isSimulated)
+    @Test fun stageGuards_executionModesAndSafety() {
+        assertTrue(TradingStage.STAGE_1.isLocalSimulation)
+        assertFalse(TradingStage.STAGE_2.isLocalSimulation)
+        assertTrue(TradingStage.STAGE_2.isDemoTrading)
+        assertFalse(TradingStage.STAGE_3.isLocalSimulation)
+        assertFalse(TradingStage.STAGE_3.isDemoTrading)
+        // No stage may submit real LIVE (funded) orders in this build; Stage 3 remains blocked/disabled.
         assertFalse(TradingStage.STAGE_1.canSubmitRealOrders)
         assertFalse(TradingStage.STAGE_2.canSubmitRealOrders)
         assertTrue(TradingStage.STAGE_3.canSubmitRealOrders) // but app blocks Stage 3 execution

@@ -115,10 +115,12 @@ class TradingRulesLogicTest {
     }
 
     @Test fun stageIsolationRules() {
-        assertTrue(TradingStage.STAGE_1.isSimulated)
-        assertTrue(TradingStage.STAGE_2.isSimulated)
-        assertFalse(TradingStage.STAGE_3.isSimulated)
+        assertTrue(TradingStage.STAGE_1.isLocalSimulation)
+        assertFalse(TradingStage.STAGE_2.isLocalSimulation)
+        assertTrue(TradingStage.STAGE_2.isDemoTrading)
+        assertFalse(TradingStage.STAGE_3.isLocalSimulation)
         assertFalse(TradingStage.STAGE_1.canSubmitRealOrders)
-        assertFalse(TradingStage.STAGE_2.canSubmitRealOrders)
+        assertFalse(TradingStage.STAGE_2.canSubmitRealOrders) // no live/real-funds orders
+        assertTrue(TradingStage.STAGE_3.canSubmitRealOrders) // capability flag, but Stage 3 blocked in app
     }
 }
