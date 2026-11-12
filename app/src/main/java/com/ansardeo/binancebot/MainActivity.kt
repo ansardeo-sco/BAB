@@ -633,6 +633,7 @@ class MainActivity : AppCompatActivity() {
                 tv.background = if (sel) rounded(inputBg, 8) else null
             }
         }
+        var renderTrigger: (() -> Unit)? = null
         fun rebuildSubTabs() {
             subBar.removeAllViews()
             val count = if (primaryTab == 1) 3 else 2
@@ -641,9 +642,9 @@ class MainActivity : AppCompatActivity() {
                     gravity = Gravity.CENTER; setPadding(dp(8), dp(8), dp(8), dp(8)); textSize = 11f
                     setOnClickListener {
                         when (primaryTab) {
-                            0 -> if (positionSub != i) { positionSub = i; render() }
-                            1 -> if (orderSub != i) { orderSub = i; render() }
-                            2 -> if (historySub != i) { historySub = i; render() }
+                            0 -> if (positionSub != i) { positionSub = i; renderTrigger?.invoke() }
+                            1 -> if (orderSub != i) { orderSub = i; renderTrigger?.invoke() }
+                            2 -> if (historySub != i) { historySub = i; renderTrigger?.invoke() }
                         }
                     }
                 }.also { subBar.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
@@ -721,6 +722,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        renderTrigger = { render() }
         var lastPrimary = -1
         primaryViews = listOf("Position","Open Order","History").mapIndexed { i, _ ->
             TextView(this).apply {
