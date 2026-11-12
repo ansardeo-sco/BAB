@@ -206,15 +206,13 @@ class MainActivity : AppCompatActivity() {
         val balSub = text("Loading ${stage().shortLabel} wallet...", 11f, muted); addSpace(balCard, 4); balCard.addView(balSub)
         if (stage() == TradingStage.STAGE_3) balCard.addView(text("Stage 3 live balance integration is disabled by default. No real orders.", 11f, red))
 
-        val marketCard = addCard(root, "LIVE CRYPTOCURRENCY PRICES (READ-ONLY)", "Tap any coin for details. Live Binance USDT-M Futures data.")
-        val mStatus = text("Loading market data...", 12f, yellow, true); marketCard.addView(mStatus)
-        val mUpdated = text("Last update: --", 11f, muted); marketCard.addView(mUpdated); addSpace(marketCard, 8)
+        val marketCard = addCard(root, "LIVE CRYPTOCURRENCY PRICES (READ-ONLY)")
 
         val tabBar = row().apply { background = rounded(inputBg, 10); setPadding(dp(4), dp(4), dp(4), dp(4)) }
         marketCard.addView(tabBar); addSpace(marketCard, 8)
         val listHost = column(); marketCard.addView(listHost)
         val marketTabs = listOf("Favorites", "Volume", "Gainers", "Losers")
-        var selectedMarketTab = 0
+        var selectedMarketTab = 1 // Volume is the default selected sub-tab on every Home open
         val tabViews = mutableListOf<TextView>()
         fun styleMarketTabs() {
             tabViews.forEachIndexed { i, tv ->
@@ -294,15 +292,9 @@ class MainActivity : AppCompatActivity() {
                 if (gen != refreshGen || currentPage != "Home") return@launch
                 lastOverview = ov
                 if (!ov.dataAvailable) {
-                    mStatus.text = "Unavailable - ${ov.error ?: "unable to load live prices"} (retrying)"
-                    mStatus.setTextColor(red)
-                    mUpdated.text = "Last update: --"
-                    listHost.removeAllViews(); listHost.addView(text("Unable to load live prices. Retrying...", 12f, red))
+                    listHost.removeAllViews()
+                    listHost.addView(text("Unable to load live prices. Retrying...", 12f, red))
                 } else {
-                    val label = if (ov.stale) "Stale" else if (ov.live) "Live" else ov.status
-                    mStatus.text = "$label - Binance USDT-M Futures (public, read-only)"
-                    mStatus.setTextColor(if (ov.stale) yellow else green)
-                    mUpdated.text = "Last update: ${ov.lastUpdate ?: "--"} (auto-refresh)"
                     renderMarketList(ov)
                     renderWallet()
                 }
@@ -345,12 +337,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderMarketRows(target: LinearLayout, items: List<Ticker>, volumeTextProvider: (Ticker) -> String = { formatCompactVolume(it.quoteVolume) }) {
         target.removeAllViews()
-        // Header row
+        // Header row: Symbol, Price, 24h Vol, 24h % (last/far right)
         val header = row().apply { setPadding(dp(10), dp(6), dp(10), dp(6)) }
         header.addView(text("Symbol", 11f, muted, true), LinearLayout.LayoutParams(0, -2, 1.15f).apply { marginEnd = dp(8) })
         header.addView(text("Price", 11f, muted, true).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END }, LinearLayout.LayoutParams(0, -2, 1.0f).apply { marginEnd = dp(8) })
+        header.addView(text("24h Vol", 11f, muted, true).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END }, LinearLayout.LayoutParams(0, -2, 0.95f).apply { marginEnd = dp(8) })
         header.addView(text("24h %", 11f, muted, true).apply { gravity = Gravity.CENTER; textAlignment = View.TEXT_ALIGNMENT_CENTER }, LinearLayout.LayoutParams(dp(78), -2))
-        header.addView(text("24h Vol", 11f, muted, true).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END }, LinearLayout.LayoutParams(0, -2, 0.95f))
         target.addView(header)
         target.addView(View(this).apply { setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.divider)) }, LinearLayout.LayoutParams(-1, dp(1)))
 
@@ -365,15 +357,15 @@ class MainActivity : AppCompatActivity() {
             line.addView(priceTv(PriceFormatter.formatPrice(t.lastPrice ?: t.markPrice), 12f, white).apply {
                 gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END
             }, LinearLayout.LayoutParams(0, -2, 1.0f).apply { marginEnd = dp(8) })
+            line.addView(priceTv(volumeTextProvider(t), 11.5f, muted).apply {
+                gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+            }, LinearLayout.LayoutParams(0, -2, 0.95f).apply { marginEnd = dp(8) })
             val badgeWrap = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
             }
             badgeWrap.addView(percentBadge(t.priceChangePercent), LinearLayout.LayoutParams(dp(70), dp(28)))
             line.addView(badgeWrap, LinearLayout.LayoutParams(dp(78), -2))
-            line.addView(priceTv(volumeTextProvider(t), 11.5f, muted).apply {
-                gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END
-            }, LinearLayout.LayoutParams(0, -2, 0.95f))
             target.addView(line)
             target.addView(View(this).apply { setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.divider)) }, LinearLayout.LayoutParams(-1, dp(1)))
         }
