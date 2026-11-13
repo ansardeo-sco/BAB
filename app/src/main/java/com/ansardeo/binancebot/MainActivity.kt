@@ -1,4 +1,4 @@
-package com.ansardeo.binancebot
+﻿package com.ansardeo.binancebot
 
 import android.content.Context
 import android.content.Intent
@@ -589,7 +589,7 @@ class MainActivity : AppCompatActivity() {
             val s = stage()
             val warn = when (s) {
                 TradingStage.STAGE_3 -> "STAGE 3 LIVE TRADING is disabled in this build. No real order will be placed."
-                TradingStage.STAGE_2 -> "Stage 2 submits a REAL LIMIT order to Binance USDⓈ-M Futures Demo. Use Demo credentials only. Order execution/state is confirmed by Binance."
+                TradingStage.STAGE_2 -> "Stage 2 submits a REAL LIMIT order to Binance USDâ“ˆ-M Futures Demo. Use Demo credentials only. Order execution/state is confirmed by Binance."
                 else -> "${s.shortLabel} is local simulation. No real Binance order will be submitted."
             }
             AlertDialog.Builder(this)
@@ -1221,7 +1221,7 @@ class MainActivity : AppCompatActivity() {
     private fun settingsPage() {
         val root = pageContainer()
         root.addView(text("Settings", 23f, white, true))
-        root.addView(text("Default settings (applied to trading). Trailing/SL/Averaging/Re-entry percentages are auto-selected from the fixed leverage table (1x–20x, 25x) and are not editable. Fixed Take Profit is not used.", 12f, muted))
+        root.addView(text("Default settings (applied to trading). Trailing/SL/Averaging/Re-entry percentages are auto-selected from the fixed leverage table (1xâ€“20x, 25x) and are not editable. Fixed Take Profit is not used.", 12f, muted))
         val st = addCard(root, "ACTIVE STAGE", "Current: ${stage().title}")
         addActionButton(st, "CHANGE STAGE") {
             val opts = TradingStage.entries.map { it.title }.toTypedArray()
@@ -1230,7 +1230,7 @@ class MainActivity : AppCompatActivity() {
         val box = column(); root.addView(box)
         box.removeAllViews()
         val s = LocalCoinSettingsStore.loadGlobal(this)
-        val sc = addCard(box, "DEFAULT CONFIGURATION", "Saved locally. Trading % come from the fixed leverage table (1x–20x, 25x).")
+        val sc = addCard(box, "DEFAULT CONFIGURATION", "Saved locally. Trading % come from the fixed leverage table (1xâ€“20x, 25x).")
         fun sw(label: String, checked: Boolean) = Switch(this).apply { text = label; isChecked = checked; setTextColor(white) }.also { sc.addView(it); addSpace(sc, 4) }
         val swL = sw("LONG enabled", s.enabledLong)
         val swS = sw("SHORT enabled", s.enabledShort)
@@ -1244,7 +1244,7 @@ class MainActivity : AppCompatActivity() {
         val marginEt = et("Initial Margin (USDT)", String.format(Locale.US, "%.4f", s.marginAmount).trimEnd('0').trimEnd('.'))
         val avgMarginEt = et("Averaging Margin (USDT)", String.format(Locale.US, "%.4f", s.averagingMargin).trimEnd('0').trimEnd('.'))
         val oppMarginEt = et("Opposite-side Margin (USDT)", String.format(Locale.US, "%.4f", s.oppositeMargin).trimEnd('0').trimEnd('.'))
-        sc.addView(text("Leverage (1x–20x, 25x)", 12f, muted, true))
+        sc.addView(text("Leverage (1xâ€“20x, 25x)", 12f, muted, true))
         val levSpin = Spinner(this).apply { adapter = createDarkSpinnerAdapter(LeverageConfig.SUPPORTED_LEVERAGES.map { "${it}x" }); setPopupBackgroundDrawable(rounded(inputBg, 10)); setBackgroundColor(inputBg); setSelection(LeverageConfig.SUPPORTED_LEVERAGES.indexOf(s.leverage).coerceAtLeast(0)) }
         sc.addView(levSpin, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
         val info = text("", 12f, yellow); sc.addView(info)
@@ -1268,7 +1268,7 @@ class MainActivity : AppCompatActivity() {
 
         // ---- Binance Demo API Configuration (Stage 2 only) ----
         if (stage() == TradingStage.STAGE_2) {
-            val demoCard = addCard(root, "BINANCE DEMO API CONFIGURATION", "Stage 2 only: Binance USDâ“ˆ-M Futures Demo (https://demo-fapi.binance.com). Credentials are encrypted on-device (Android Keystore-backed). Never used for Live Trading.")
+            val demoCard = addCard(root, "BINANCE DEMO API CONFIGURATION", "Stage 2 only: Binance USDÃ¢â€œË†-M Futures Demo (https://demo-fapi.binance.com). Credentials are encrypted on-device (Android Keystore-backed). Never used for Live Trading.")
             val creds = DemoCredentialsStore.load(this)
             val statusLabel = text("", 12f, muted, true)
             fun refreshDemoStatus() {
@@ -1362,16 +1362,10 @@ class MainActivity : AppCompatActivity() {
     // ---------------- MORE ----------------
     private fun morePage() {
         val root = pageContainer()
-        root.addView(text("More", 23f, white, true))
-
-
-    // ---------------- MORE ----------------
-    private fun morePage() {
-        val root = pageContainer()
         root.addView(text("More", 22f, white, true))
         addSpace(root, 4)
 
-        fun statusDot(color: Int): TextView = text("â—", 12f, color, true).apply { setPadding(0, 0, dp(6), 0) }
+        fun statusDot(color: Int): TextView = text("Ã¢â€”Â", 12f, color, true).apply { setPadding(0, 0, dp(6), 0) }
         fun statusRow(label: String, value: String, valueColor: Int): LinearLayout {
             val r = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
             r.addView(text(label, 12f, muted), LinearLayout.LayoutParams(0, -2, 1f))
@@ -1387,14 +1381,14 @@ class MainActivity : AppCompatActivity() {
             root.addView(cardView, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
             val header = row().apply { gravity = Gravity.CENTER_VERTICAL; isClickable = true; isFocusable = true }
             val titleTv = text(title, 14f, yellow, true)
-            val arrow = text(if (initiallyExpanded) "â–¾" else "â–¸", 14f, muted, true)
+            val arrow = text(if (initiallyExpanded) "Ã¢â€“Â¾" else "Ã¢â€“Â¸", 14f, muted, true)
             header.addView(titleTv, LinearLayout.LayoutParams(0, -2, 1f))
             header.addView(arrow)
             val content = column().apply { visibility = if (initiallyExpanded) View.VISIBLE else View.GONE; setPadding(0, dp(8), 0, 0) }
             header.setOnClickListener {
                 val expanded = content.visibility == View.VISIBLE
                 content.visibility = if (expanded) View.GONE else View.VISIBLE
-                arrow.text = if (expanded) "â–¸" else "â–¾"
+                arrow.text = if (expanded) "Ã¢â€“Â¸" else "Ã¢â€“Â¾"
             }
             cardView.addView(header)
             cardView.addView(content)
@@ -1413,13 +1407,13 @@ class MainActivity : AppCompatActivity() {
         // 2. Current Trading Stage
         val (_, stgSec) = expandableSection("Current Trading Stage", true)
         val stTitle = when (activeStage) {
-            TradingStage.STAGE_1 -> "Stage 1 â€” Virtual Trading"
-            TradingStage.STAGE_2 -> "Stage 2 â€” Binance Demo Trading"
-            TradingStage.STAGE_3 -> "Stage 3 â€” Live Trading"
+            TradingStage.STAGE_1 -> "Stage 1 Ã¢â‚¬â€ Virtual Trading"
+            TradingStage.STAGE_2 -> "Stage 2 Ã¢â‚¬â€ Binance Demo Trading"
+            TradingStage.STAGE_3 -> "Stage 3 Ã¢â‚¬â€ Live Trading"
         }
         val stDesc = when (activeStage) {
             TradingStage.STAGE_1 -> "Live market data with local virtual wallet (5,000 USDT). Simulated execution only. No real Binance orders."
-            TradingStage.STAGE_2 -> "Binance USDâ“ˆ-M Futures Demo (demo-fapi). Actual Demo account/orders when configured. Demo credentials only; never Live."
+            TradingStage.STAGE_2 -> "Binance USDÃ¢â€œË†-M Futures Demo (demo-fapi). Actual Demo account/orders when configured. Demo credentials only; never Live."
             TradingStage.STAGE_3 -> "Live trading is disabled in this build. Requires deliberate activation and authorized secure Live API integration (not enabled)."
         }
         val stRow = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(6)) }
@@ -1493,7 +1487,7 @@ class MainActivity : AppCompatActivity() {
             TradingStage.STAGE_2 -> {
                 val demoBalTv = text("Loading Binance Demo wallet...", 12f, muted)
                 walletSec.addView(demoBalTv)
-                walletSec.addView(text("Source: Binance USDâ“ˆ-M Futures Demo account (not Stage 1 virtual balance).", 11f, muted))
+                walletSec.addView(text("Source: Binance USDÃ¢â€œË†-M Futures Demo account (not Stage 1 virtual balance).", 11f, muted))
                 lifecycleScope.launch {
                     try {
                         val snap = demoRepo.fetchSnapshot(this@MainActivity)
@@ -1517,7 +1511,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             TradingStage.STAGE_3 -> {
-                walletSec.addView(text("Live USDâ“ˆ-M wallet information is not available because Live Trading is disabled and no authorized secure Live API integration is active in this build.", 12f, muted))
+                walletSec.addView(text("Live USDÃ¢â€œË†-M wallet information is not available because Live Trading is disabled and no authorized secure Live API integration is active in this build.", 12f, muted))
                 walletSec.addView(text("No reset action is available for Demo or Live wallets.", 11f, muted))
             }
         }
@@ -1535,14 +1529,14 @@ class MainActivity : AppCompatActivity() {
         safeSec.addView(statusRow("API Security Status", if (apiSecurity.startsWith("Protected")) "Protected" else "Not Configured", if (apiSecurity.startsWith("Protected")) green else yellow))
         safeSec.addView(text(apiSecurity, 11f, muted))
         addSpace(safeSec, 4)
-        safeSec.addView(text("â€¢ Stage 1 uses virtual funds only (local simulation). No real Binance orders.", 12f, muted))
-        safeSec.addView(text("â€¢ Stage 2 uses Binance Futures Demo funds/API only. Demo credentials are not used for Live.", 12f, muted))
-        safeSec.addView(text("â€¢ Stage 3 requires deliberate activation and authorized Live API credentials. Live trading is not active in this build.", 12f, muted))
+        safeSec.addView(text("Ã¢â‚¬Â¢ Stage 1 uses virtual funds only (local simulation). No real Binance orders.", 12f, muted))
+        safeSec.addView(text("Ã¢â‚¬Â¢ Stage 2 uses Binance Futures Demo funds/API only. Demo credentials are not used for Live.", 12f, muted))
+        safeSec.addView(text("Ã¢â‚¬Â¢ Stage 3 requires deliberate activation and authorized Live API credentials. Live trading is not active in this build.", 12f, muted))
 
         // 6. About
         val (_, aboutSec) = expandableSection("About", false)
         aboutSec.addView(text("About BAB", 13f, white, true))
-        aboutSec.addView(text("Binance Android Bot (BAB) is a multi-stage Binance USDâ“ˆ-M trading app with strict isolation between Virtual, Demo, and Live environments.", 12f, muted))
+        aboutSec.addView(text("Binance Android Bot (BAB) is a multi-stage Binance USDÃ¢â€œË†-M trading app with strict isolation between Virtual, Demo, and Live environments.", 12f, muted))
         addSpace(aboutSec, 6)
         aboutSec.addView(statusRow("Application", "BAB - Binance Android Bot", white))
         aboutSec.addView(statusRow("Version", BuildConfig.VERSION_NAME, white))
