@@ -57,4 +57,16 @@ class ExchangeRulesTest {
         assertNull(r1.validatePrice(0.12345))
         assertNull(r2.validatePrice(123.0))
     }
+
+    @Test fun missingFiltersAreRejectedNotSilentlyPassed() {
+        val r = SymbolFilterRules(symbol = "BTCUSDT") // no filters
+        assertFalse(r.hasRequiredFilters())
+        assertNotNull(r.validatePrice(100.0))
+        assertNotNull(r.validateQty(1.0))
+        assertNotNull(r.validateNotional(100.0, 1.0))
+        // min/max qty absent -> validateQty still rejects due to missing stepSize
+        val r2 = SymbolFilterRules(symbol = "BTCUSDT", tickSize = BigDecimal("0.1"), stepSize = BigDecimal("0.001"))
+        assertFalse(r2.hasRequiredFilters()) // minQty/maxQty/minNotional missing
+        assertNotNull(r2.validateNotional(100.0, 1.0))
+    }
 }
