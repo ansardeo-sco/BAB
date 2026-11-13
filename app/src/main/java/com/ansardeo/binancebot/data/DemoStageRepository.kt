@@ -93,12 +93,12 @@ class DemoStageRepository(private val client: BinanceDemoApiClient = BinanceDemo
 
     suspend fun placeAlgoOrder(
         context: Context, symbol: String, side: String, type: String, quantity: String? = null,
-        triggerPrice: String? = null, callbackRate: String? = null, reduceOnly: Boolean = false,
-        positionSide: String? = null, clientAlgoId: String? = null
+        triggerPrice: String? = null, callbackRate: String? = null, activationPrice: String? = null,
+        reduceOnly: Boolean = false, positionSide: String? = null, clientAlgoId: String? = null
     ): BinanceDemoApiClient.ApiResult<JSONObject> = withContext(Dispatchers.IO) {
         val creds = DemoCredentialsStore.load(context)
         if (!creds.hasBoth) return@withContext BinanceDemoApiClient.ApiResult(false, error = "Demo API credentials are not configured")
-        client.placeAlgoOrder(creds.apiKey, creds.secretKey, symbol, side, type, quantity, triggerPrice, callbackRate, reduceOnly, positionSide, clientAlgoId)
+        client.placeAlgoOrder(creds.apiKey, creds.secretKey, symbol, side, type, quantity, triggerPrice, callbackRate, activationPrice, reduceOnly, positionSide, clientAlgoId)
     }
 
     suspend fun cancelAlgoOrder(context: Context, symbol: String, algoId: Long? = null, clientAlgoId: String? = null): BinanceDemoApiClient.ApiResult<JSONObject> = withContext(Dispatchers.IO) {

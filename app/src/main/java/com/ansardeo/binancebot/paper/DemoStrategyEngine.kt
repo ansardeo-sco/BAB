@@ -100,6 +100,28 @@ class DemoStrategyEngine(
         dao.updateCycle(cycle.copy(id = cycleId, averageEntryPrice = entryPrice, totalQuantity = qty, totalRemainingQuantity = qty))
         dao.insertEvent(PaperEventEntity(stage = TradingStage.STAGE_2.id, cycleId = cycleId, symbol = sym, type = "ENTRY_DETECTED",
             message = "Detected Binance Demo $dir position for $sym @ ${String.format(java.util.Locale.US, "%.8f", entryPrice).trimEnd('0').trimEnd('.')} qty ${String.format(java.util.Locale.US, "%.6f", qty).trimEnd('0').trimEnd('.')}.", price = entryPrice))
+        // Place Binance Demo Trailing Stop (algo TRAILING_STOP_MARKET) with activation + callback rate.
+        val side = if (dir == "LONG") "SELL" else "BUY"
+        val activationPrice = if (dir == "LONG") entryPrice * (1.0 + profile.trailingActivationPercent / 100.0) else entryPrice * (1.0 - profile.trailingActivationPercent / 100.0)
+        val callbackStr = String.format(java.util.Locale.US, "%.2f", profile.callbackRatePercent).trimEnd('0').trimEnd('.')
+        val qtyStr = com.ansardeo.binancebot.util.PriceFormatter.formatQty(qty).trim()
+        val clientId = "ts2-${cycleId}-${entryId}-${UUID.randomUUID()}"
+        val tsRes = runCatching {
+            demoRepo.placeAlgoOrder(context, sym, side, "TRAILING_STOP_MARKET", qtyStr,
+                callbackRate = callbackStr, activationPrice = String.format(java.util.Locale.US, "%.8f", activationPrice).trimEnd('0').trimEnd('.'),
+                reduceOnly = true, clientAlgoId = clientId)
+        }.getOrNull()
+        val algoId = tsRes?.data?.optString("algoId")?.ifBlank { tsRes.data?.optString("orderId") }
+        demoDao.insert(DemoOrderEntity(
+            stage = TradingStage.STAGE_2.id, cycleId = cycleId, entryId = entryId, symbol = sym, direction = dir, side = side,
+            orderType = "TRAILING_STOP", triggerPrice = activationPrice, quantity = qty, leverage = lev,
+            status = tsRes?.data?.optString("algoStatus")?.ifBlank { tsRes.data?.optString("status") } ?: if (tsRes?.ok == true) "NEW" else "FAILED",
+            clientOrderId = clientId, exchangeOrderId = algoId, reduceOnly = true,
+            lastError = if (tsRes?.ok != true) tsRes?.error else null
+        ))
+        dao.updateEntry(entry.copy(trailingOrderId = null, updatedAt = now))
+        dao.insertEvent(PaperEventEntity(stage = TradingStage.STAGE_2.id, cycleId = cycleId, symbol = sym, type = "TRAILING_PLACED",
+            message = "Stage 2 trailing stop ${if (tsRes?.ok == true) "placed" else "FAILED"}: activation ${String.format(java.util.Locale.US, "%.4f", activationPrice)}, callback ${profile.callbackRatePercent}%."))
     }
 
     /** Process active Stage 2 cycles: trailing stop, averaging trigger, re-entry, opposite-side. */
@@ -123,23 +145,17 @@ class DemoStrategyEngine(
         if (!mark.isFinite() || mark <= 0.0) return
         if (cycle.status !in setOf("ACTIVE", "CLOSING")) return
 
-        // Trailing stop (per entry). Closure triggers re-entry logic. NO SL in Stage 2.
+        // Trailing stop is handled by Binance Demo TRAILING_STOP_MARKET algo order (exchange-side).
+        // App-side: update trailing progress for display only (no close here to avoid duplicate execution).
         for (entry in dao.getOpenFilledEntries(cycle.id)) {
             val eNow = dao.getEntry(entry.id) ?: continue
             val progressed = PaperEngine.progressTrailing(eNow, mark)
             if (progressed.first) dao.updateEntry(progressed.second)
-            val e2 = progressed.second
-            if (PaperEngine.isTrailingStopHit(e2, mark)) {
-                val exit = e2.trailingStopPrice ?: mark
-                closeEntryLocked(context, dao.getCycle(cycle.id) ?: cycle, dao.getEntry(entry.id) ?: e2, exit, "TRAILING_STOP", now, triggerReentry = true)
-            }
         }
 
         var current = dao.getCycle(cycle.id) ?: return
         val remaining = dao.getOpenFilledEntries(current.id).sumOf { it.remainingQuantity }
-        val pending = dao.getEntries(current.id).any { it.status == "PENDING" }
         dao.updateCycle(current.copy(totalRemainingQuantity = remaining, averageEntryPrice = weightedAverage(current.id), updatedAt = now))
-        if (remaining <= 1e-12 && !pending) finalizeLocked(dao.getCycle(current.id) ?: current, mark, now, "TRAILING_STOP")
     }
 
     private suspend fun closeEntryLocked(context: Context, cycle: PaperCycleEntity, entry: PaperEntryEntity, exitPrice: Double, reason: String, now: Long, triggerReentry: Boolean) {

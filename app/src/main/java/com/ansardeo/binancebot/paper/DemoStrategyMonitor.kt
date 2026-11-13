@@ -11,6 +11,7 @@ import com.ansardeo.binancebot.paper.db.PaperHistoryCloseEntity
 import com.ansardeo.binancebot.paper.PaperEngine
 import com.ansardeo.binancebot.paper.db.PaperDatabase
 import kotlinx.coroutines.*
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -98,6 +99,55 @@ object DemoStrategyMonitor {
                     filledAt = if (newStatus == "FILLED" && rec.filledAt == null) now else rec.filledAt,
                     updatedAt = now
                 ))
+                if (newStatus in setOf("TRIGGERED", "FILLED") && rec.orderType == "TRAILING_STOP" && rec.filledAt == null) {
+                    // Trailing stop triggered on Binance: record closure + re-entry.
+                    runCatching {
+                        val entry = db.dao().getEntry(rec.entryId ?: -1L)
+                        val cycle = if (entry != null) db.dao().getCycle(entry.cycleId) else null
+                        if (entry != null && cycle != null && entry.status == "FILLED") {
+                            val exitPrice = rec.filledPrice ?: entry.trailingStopPrice ?: entry.fillPrice ?: 0.0
+                            val filledQty = if (rec.filledQuantity > 0) rec.filledQuantity else entry.remainingQuantity
+                            val gross = PaperEngine.realizedPnl(entry.direction, entry.fillPrice ?: exitPrice, exitPrice, filledQty)
+                            val marginPart = entry.margin * (filledQty / kotlin.math.max(entry.filledQuantity, 1e-12))
+                            val pnl = gross
+                            val pnlPct = if (marginPart > 1e-12) (pnl / marginPart) * 100.0 else 0.0
+                            val idem = "stage2ts|${cycle.id}|${entry.id}|${System.currentTimeMillis()}"
+                            db.dao().insertHistoryClose(PaperHistoryCloseEntity(
+                                stage = TradingStage.STAGE_2.id, cycleId = cycle.id, entryId = entry.id,
+                                symbol = cycle.symbol, direction = entry.direction,
+                                entryFillPrice = entry.fillPrice ?: 0.0, exitFillPrice = exitPrice,
+                                entryMargin = marginPart, leverage = entry.leverage, closedQuantity = filledQty,
+                                realizedPnlUsdt = pnl, realizedPnlPercent = pnlPct,
+                                closingReason = "TRAILING_STOP",
+                                entryTimestamp = entry.filledAt ?: entry.createdAt, exitTimestamp = now,
+                                idempotencyKey = idem
+                            ))
+                            db.dao().updateEntry(entry.copy(status = "CLOSED", remainingQuantity = 0.0, closeReason = "TRAILING_STOP", closedAt = now, updatedAt = now))
+                            val remaining = db.dao().getOpenFilledEntries(cycle.id).sumOf { it.remainingQuantity }
+                            db.dao().updateCycle(cycle.copy(status = if (remaining <= 1e-12) "CLOSED" else cycle.status, totalRemainingQuantity = remaining, updatedAt = now, closeReason = if (remaining <= 1e-12) "TRAILING_STOP" else cycle.closeReason, closedAt = if (remaining <= 1e-12) now else cycle.closedAt))
+                            db.dao().insertEvent(PaperEventEntity(stage = TradingStage.STAGE_2.id, cycleId = cycle.id, symbol = cycle.symbol, type = "TRAILING_TRIGGERED",
+                                message = "Stage 2 trailing stop triggered for entry #${entry.id} @ ${String.format(java.util.Locale.US, "%.4f", exitPrice)}.", price = exitPrice))
+                            // Re-entry plans
+                            val dist = cycle.newEntryDistancePercent / 100.0
+                            val longTrigger = exitPrice * (1.0 - dist)
+                            val shortTrigger = exitPrice * (1.0 + dist)
+                            val longOpen = db.dao().countOpenCyclesExcluding(TradingStage.STAGE_2.id, cycle.symbol, "LONG", cycle.id) > 0
+                            val shortOpen = db.dao().countOpenCyclesExcluding(TradingStage.STAGE_2.id, cycle.symbol, "SHORT", cycle.id) > 0
+                            if (!longOpen) db.dao().insertReentryPlan(PaperReentryPlanEntity(
+                                stage = TradingStage.STAGE_2.id, sourceCycleId = cycle.id, symbol = cycle.symbol, direction = "LONG",
+                                leverage = cycle.leverage, margin = cycle.initialMargin.takeIf { it > 0 } ?: 2.0,
+                                referenceClosePrice = exitPrice, triggerPrice = longTrigger, status = "WAITING",
+                                clientPlanId = "re2ts-${cycle.id}-LONG-${now}-${java.util.UUID.randomUUID()}", createdAt = now, updatedAt = now))
+                            if (!shortOpen) db.dao().insertReentryPlan(PaperReentryPlanEntity(
+                                stage = TradingStage.STAGE_2.id, sourceCycleId = cycle.id, symbol = cycle.symbol, direction = "SHORT",
+                                leverage = cycle.leverage, margin = cycle.initialMargin.takeIf { it > 0 } ?: 2.0,
+                                referenceClosePrice = exitPrice, triggerPrice = shortTrigger, status = "WAITING",
+                                clientPlanId = "re2ts-${cycle.id}-SHORT-${now}-${java.util.UUID.randomUUID()}", createdAt = now, updatedAt = now))
+                        }
+                    }
+                    dao.update(rec.copy(status = "TRIGGERED", filledAt = now, updatedAt = now))
+                }
+
                 if (newStatus == "FILLED" && rec.orderType == "CLOSE" && rec.filledAt == null) {
                     // Confirm exit fill: update entry/cycle/history only after Binance confirms.
                     runCatching {

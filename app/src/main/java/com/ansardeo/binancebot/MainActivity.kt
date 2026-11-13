@@ -839,7 +839,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderDemoPositionsOpen(body: LinearLayout, snap: DemoStageRepository.DemoSnapshot) {
         body.removeAllViews()
         if (!snap.ok) { body.addView(text(snap.error ?: "Unable to load Binance Demo data.", 13f, red)); return }
-        val posCard = addCard(body, "DEMO POSITIONS (OPEN)", "Actual Binance USDⓈ-M Futures Demo positions.")
+        val posCard = addCard(body, "DEMO POSITIONS (OPEN)", "Actual Binance USDⓈ-M Futures Demo positions. Trailing Stop managed by BAB.")
         val positions = snap.positions
         var any = false
         for (i in 0 until positions.length()) {
@@ -853,16 +853,39 @@ class MainActivity : AppCompatActivity() {
             val mark = p.optString("markPrice").toDoubleOrNull()
             val pnl = p.optString("unRealizedProfit").toDoubleOrNull()
             val lev = p.optString("leverage").toIntOrNull() ?: 0
+            val qty = kotlin.math.abs(amt)
+            // Look up local cycle/entry for trailing info (Stage 2 detected positions).
+            val cycles = paperDb.dao().getActiveCyclesWithEntries(stageId()).filter { cwe -> cwe.cycle.symbol == sym && cwe.cycle.direction == side }
+            val cwe = cycles.firstOrNull()
+            val openEntry = cwe?.entries?.firstOrNull { it.status == "FILLED" && it.remainingQuantity > 1e-12 }
+            val avg = cwe?.cycle?.averageEntryPrice ?: entry
+            val tsPrice = openEntry?.trailingStopPrice
+            val actPrice = openEntry?.trailingBasePrice?.let { base ->
+                if (side == "LONG") base * (1.0 + (openEntry.trailingActivationPercent / 100.0)) else base * (1.0 - (openEntry.trailingActivationPercent / 100.0))
+            }
             val box = makeItemCard(posCard)
-            val h = row()
-            h.addView(text(sym, 15f, white, true), LinearLayout.LayoutParams(0, -2, 1f))
-            h.addView(text(side, 12f, if (side == "LONG") green else red, true))
-            box.addView(h)
-            addLabel(box, "Quantity", PriceFormatter.formatQty(kotlin.math.abs(amt)), white, true)
-            addLabel(box, "Avg Entry Price", entry?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
-            addLabel(box, "Mark Price", mark?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+            val header = row().apply { isClickable = true; setOnClickListener { openDetail(sym) } }
+            header.addView(text(sym, 16f, white, true), LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(text("$side  ${lev}x", 13f, if (side == "LONG") green else red, true))
+            box.addView(header)
+            addSpace(box, 4)
+            addLabel(box, "Current Price", mark?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+            addLabel(box, "Entry Price", entry?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+            if (avg != null && entry != null && kotlin.math.abs(avg - entry) > 1e-9) {
+                addLabel(box, "Average Entry Price", PriceFormatter.formatPrice(avg), white, true)
+            }
+            addLabel(box, "Position Quantity", PriceFormatter.formatQty(qty), white, true)
             addLabel(box, "Unrealized PNL", pnl?.let { PriceFormatter.formatPnl(it) } ?: "--", pnlColor(pnl), true)
-            addLabel(box, "Leverage", "${lev}x", white, true)
+            addSpace(box, 2)
+            box.addView(text("Trailing Stop (Take Profit)", 12f, muted, true))
+            addSpace(box, 4)
+            addLabel(box, "Status", if (openEntry?.trailingActivated == true) "TRAILING ACTIVE" else "WAITING FOR ACTIVATION", if (openEntry?.trailingActivated == true) green else yellow, true)
+            addLabel(box, "Activation Price", actPrice?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+            addLabel(box, "Callback Rate", openEntry?.let { PriceFormatter.formatPercent(it.trailingCallbackPercent) } ?: "--", white, true)
+            addLabel(box, "Current Trailing Trigger", tsPrice?.let { PriceFormatter.formatPrice(it) } ?: "Not activated", yellow, true)
+            addLabel(box, "Trailing Order ID", openEntry?.trailingOrderId?.toString() ?: "TS-${openEntry?.id ?: "--"}", muted)
+            addSpace(box, 2)
+            box.addView(text("Stage 2: No Stop Loss (disabled per policy).", 11f, muted, true))
         }
         if (!any) posCard.addView(text("No open Demo positions.", 12f, muted))
         addSpace(body, 8)

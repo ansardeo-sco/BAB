@@ -56,7 +56,7 @@ class BinanceDemoApiClient(
         apiKey: String, secretKey: String,
         symbol: String, side: String, type: String, quantity: String? = null,
         triggerPrice: String? = null, callbackRate: String? = null,
-        reduceOnly: Boolean = false, positionSide: String? = null,
+        activationPrice: String? = null, reduceOnly: Boolean = false, positionSide: String? = null,
         newClientOrderId: String? = null, workingType: String = "MARK_PRICE",
         priceProtect: Boolean = true
     ): ApiResult<JSONObject> = withContext(Dispatchers.IO) {
@@ -70,6 +70,7 @@ class BinanceDemoApiClient(
         if (!quantity.isNullOrBlank()) params["quantity"] = quantity
         if (!triggerPrice.isNullOrBlank()) params["triggerPrice"] = triggerPrice
         if (!callbackRate.isNullOrBlank()) params["callbackRate"] = callbackRate
+        if (!activationPrice.isNullOrBlank()) params["activationPrice"] = activationPrice
         params["reduceOnly"] = reduceOnly.toString()
         if (!positionSide.isNullOrBlank()) params["positionSide"] = positionSide
         if (!newClientOrderId.isNullOrBlank()) params["newClientOrderId"] = newClientOrderId
