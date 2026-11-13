@@ -41,7 +41,16 @@ object DemoStrategyMonitor {
             while (isActive) {
                 try {
                     if (TradingStage.STAGE_2.isDemoTrading && DemoCredentialsStore.hasCredentials(appCtx)) {
-                        runCatching { processOpenOrders(appCtx, demoRepo, dao, repo) }
+                        val engine = DemoStrategyEngine(db)
+                        runCatching { engine.detectAndRegisterPositions(appCtx) }
+                        runCatching { processOpenOrders(appCtx, demoRepo, dao, repo, engine) }
+                        // Fetch prices and run strategy (trailing/averaging/re-entry).
+                        runCatching {
+                            val ov = repo.getOverview()
+                            val prices = mutableMapOf<String, Double>()
+                            ov.symbols.forEach { (k, v) -> val px = v.markPrice ?: v.lastPrice; if (px != null && px.isFinite() && px > 0) prices[k] = px }
+                            if (prices.isNotEmpty()) engine.processAll(appCtx, prices)
+                        }
                     }
                     delay(10_000L)
                 } catch (_: CancellationException) {
@@ -63,7 +72,8 @@ object DemoStrategyMonitor {
         context: Context,
         demoRepo: DemoStageRepository,
         dao: DemoOrderDao,
-        marketRepo: MarketRepository
+        marketRepo: MarketRepository,
+        engine: DemoStrategyEngine
     ) {
         val open = dao.getOpen("STAGE_2")
         if (open.isEmpty()) return
@@ -86,22 +96,8 @@ object DemoStrategyMonitor {
                     updatedAt = now
                 ))
                 if (newStatus == "FILLED" && rec.orderType == "ENTRY_LIMIT" && rec.filledAt == null) {
-                    // Place per-entry Stop Loss (algo STOP_MARKET, reduce-only) on Binance Demo.
-                    val slPct = com.ansardeo.binancebot.data.LeverageConfig.requireProfile(rec.leverage).slPercent
-                    val slPrice = com.ansardeo.binancebot.paper.PaperEngine.calcSl(
-                        rec.direction, avgPrice ?: rec.triggerPrice, slPct
-                    )
-                    runCatching {
-                        demoRepo.placeAlgoOrder(
-                            context, rec.symbol,
-                            side = if (rec.direction == "LONG") "SELL" else "BUY",
-                            type = "STOP_MARKET",
-                            quantity = com.ansardeo.binancebot.util.PriceFormatter.formatQty(filledQty).trim(),
-                            triggerPrice = slPrice.toString(),
-                            reduceOnly = true,
-                            clientAlgoId = "sl-${rec.clientOrderId}"
-                        )
-                    }
+                    // Stage 2 policy: NO Stop Loss orders. (Stage 1 SL preserved separately.)
+                    // Trailing stop + averaging/re-entry/opposite handled by DemoStrategyEngine.
                 }
             } catch (_: Exception) {
                 // continue with next order
