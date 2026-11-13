@@ -1,4 +1,4 @@
-﻿package com.ansardeo.binancebot
+package com.ansardeo.binancebot
 
 import android.content.Context
 import android.content.Intent
@@ -1360,35 +1360,54 @@ class MainActivity : AppCompatActivity() {
 
 
     // ---------------- MORE ----------------
+    // ---------------- MORE ----------------
     private fun morePage() {
         val root = pageContainer()
         root.addView(text("More", 22f, white, true))
         addSpace(root, 4)
 
-        fun statusDot(color: Int): TextView = text("Ã¢â€”Â", 12f, color, true).apply { setPadding(0, 0, dp(6), 0) }
+        fun statusDot(color: Int): TextView = text("â—", 13f, color, true).apply { setPadding(0, 0, dp(6), 0) }
         fun statusRow(label: String, value: String, valueColor: Int): LinearLayout {
             val r = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
-            r.addView(text(label, 12f, muted), LinearLayout.LayoutParams(0, -2, 1f))
-            r.addView(text(value, 12f, valueColor, true).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END })
+            r.addView(text(label, 12f, muted), LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(12) })
+            r.addView(text(value, 12f, valueColor, true).apply {
+                gravity = Gravity.END
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+            })
             return r
         }
         fun expandableSection(title: String, initiallyExpanded: Boolean = false): Pair<LinearLayout, LinearLayout> {
             val cardView = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 background = rounded(this@MainActivity.card, 14)
-                setPadding(dp(14), dp(10), dp(14), dp(10))
+                setPadding(dp(14), dp(12), dp(14), dp(12))
             }
             root.addView(cardView, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
-            val header = row().apply { gravity = Gravity.CENTER_VERTICAL; isClickable = true; isFocusable = true }
-            val titleTv = text(title, 14f, yellow, true)
-            val arrow = text(if (initiallyExpanded) "Ã¢â€“Â¾" else "Ã¢â€“Â¸", 14f, muted, true)
+            val header = row().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                isClickable = true
+                isFocusable = true
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+            }
+            val titleTv = text(title, 14f, yellow, true).apply {
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+            val arrow = text(if (initiallyExpanded) "â–¼" else "â–¶", 14f, muted, true).apply {
+                gravity = Gravity.END
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+                setPadding(dp(8), 0, 0, 0)
+            }
             header.addView(titleTv, LinearLayout.LayoutParams(0, -2, 1f))
-            header.addView(arrow)
-            val content = column().apply { visibility = if (initiallyExpanded) View.VISIBLE else View.GONE; setPadding(0, dp(8), 0, 0) }
+            header.addView(arrow, LinearLayout.LayoutParams(-2, -2))
+            val content = column().apply {
+                visibility = if (initiallyExpanded) View.VISIBLE else View.GONE
+                setPadding(0, dp(8), 0, 0)
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+            }
             header.setOnClickListener {
                 val expanded = content.visibility == View.VISIBLE
                 content.visibility = if (expanded) View.GONE else View.VISIBLE
-                arrow.text = if (expanded) "Ã¢â€“Â¸" else "Ã¢â€“Â¾"
+                arrow.text = if (expanded) "â–¶" else "â–¼"
             }
             cardView.addView(header)
             cardView.addView(content)
@@ -1407,48 +1426,114 @@ class MainActivity : AppCompatActivity() {
         // 2. Current Trading Stage
         val (_, stgSec) = expandableSection("Current Trading Stage", true)
         val stTitle = when (activeStage) {
-            TradingStage.STAGE_1 -> "Stage 1 Ã¢â‚¬â€ Virtual Trading"
-            TradingStage.STAGE_2 -> "Stage 2 Ã¢â‚¬â€ Binance Demo Trading"
-            TradingStage.STAGE_3 -> "Stage 3 Ã¢â‚¬â€ Live Trading"
+            TradingStage.STAGE_1 -> "Stage 1 - Virtual Trading"
+            TradingStage.STAGE_2 -> "Stage 2 - Binance Demo Trading"
+            TradingStage.STAGE_3 -> "Stage 3 - Live Trading"
         }
         val stDesc = when (activeStage) {
-            TradingStage.STAGE_1 -> "Live market data with local virtual wallet (5,000 USDT). Simulated execution only. No real Binance orders."
-            TradingStage.STAGE_2 -> "Binance USDÃ¢â€œË†-M Futures Demo (demo-fapi). Actual Demo account/orders when configured. Demo credentials only; never Live."
-            TradingStage.STAGE_3 -> "Live trading is disabled in this build. Requires deliberate activation and authorized secure Live API integration (not enabled)."
+            TradingStage.STAGE_1 -> "Live public market data with a local virtual wallet (5,000.00 USDT, USDâ“ˆ-M). Simulated execution only. No real Binance orders."
+            TradingStage.STAGE_2 -> "Binance USDâ“ˆ-M Futures Demo (demo-fapi). Actual Demo account, wallet, orders, and positions when configured with Demo API credentials. Demo credentials only; never used for Live."
+            TradingStage.STAGE_3 -> "Live trading is disabled in this build. Requires deliberate activation and authorized, secure Live API integration (not enabled)."
         }
-        val stRow = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(6)) }
+        val stRow = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(6)); layoutDirection = View.LAYOUT_DIRECTION_LTR }
         stRow.addView(statusDot(if (activeStage == TradingStage.STAGE_3) red else green))
         stRow.addView(text(stTitle, 13f, white, true))
         stgSec.addView(stRow)
         stgSec.addView(text("Active stage: ${activeStage.shortLabel}", 11f, if (activeStage == TradingStage.STAGE_3) red else green, true))
         addSpace(stgSec, 4)
-        stgSec.addView(text(stDesc, 12f, muted))
+        stgSec.addView(text(stDesc, 12f, muted).apply { textAlignment = View.TEXT_ALIGNMENT_VIEW_START })
 
         // 3. Connection Status
         val (_, connSec) = expandableSection("Connection Status", true)
-        val marketOk = (lastOverview?.dataAvailable == true)
-        val marketStale = (lastOverview?.stale == true)
-        val marketStatus = when {
-            lastOverview == null -> "Loading"
-            marketOk && !marketStale -> "Connected"
-            marketOk && marketStale -> "Stale"
-            else -> "Disconnected"
-        }
-        val marketColor = when (marketStatus) { "Connected" -> green; "Stale" -> yellow; "Loading" -> muted; else -> red }
-        val lastUpdateText = lastOverview?.lastUpdate?.takeIf { it.isNotBlank() } ?: "Not available"
-        connSec.addView(statusRow("Binance Market Data", marketStatus, marketColor))
+        val marketStatusTv = text("Checking...", 12f, muted, true).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END }
+        val marketRow = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(4)); layoutDirection = View.LAYOUT_DIRECTION_LTR }
+        marketRow.addView(text("Binance Market Data", 12f, muted), LinearLayout.LayoutParams(0, -2, 1f))
+        marketRow.addView(marketStatusTv)
+        connSec.addView(marketRow)
+
+        var demoStatusTv: TextView? = null
+        var demoMsgTv: TextView? = null
         if (activeStage == TradingStage.STAGE_2) {
-            val demoSt = DemoConnectionStore.status(this)
-            val demoColor = when (demoSt) { "CONNECTED" -> green; "ERROR" -> red; else -> muted }
-            val demoLabel = if (demoSt == "CONNECTED") "Connected" else if (demoSt == "ERROR") "Error" else "Disconnected"
-            connSec.addView(statusRow("Binance Demo API", demoLabel, demoColor))
-            val demoMsg = DemoConnectionStore.message(this)
-            if (demoMsg.isNotBlank()) connSec.addView(text(demoMsg, 11f, muted))
+            val demoRow = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(4)); layoutDirection = View.LAYOUT_DIRECTION_LTR }
+            demoRow.addView(text("Binance Demo API", 12f, muted), LinearLayout.LayoutParams(0, -2, 1f))
+            val dst = text("Checking...", 12f, muted, true).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END }
+            demoStatusTv = dst
+            demoRow.addView(dst)
+            connSec.addView(demoRow)
+            val dmt = text("", 11f, muted).apply { visibility = View.GONE; textAlignment = View.TEXT_ALIGNMENT_VIEW_START }
+            demoMsgTv = dmt
+            connSec.addView(dmt)
         }
-        connSec.addView(statusRow("Last Successful Data Update", lastUpdateText, white))
+
+        val lastUpdateRow = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(4)); layoutDirection = View.LAYOUT_DIRECTION_LTR }
+        lastUpdateRow.addView(text("Last Successful Data Update", 12f, muted), LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(12) })
+        val lastUpdateTv = text("Checking...", 12f, white, true).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END }
+        lastUpdateRow.addView(lastUpdateTv)
+        connSec.addView(lastUpdateRow)
+
+        val marketErrorTv = text("", 11f, red).apply { visibility = View.GONE; textAlignment = View.TEXT_ALIGNMENT_VIEW_START }
+        connSec.addView(marketErrorTv)
+
         if (activeStage != TradingStage.STAGE_2) {
-            connSec.addView(text("Demo API connection status is shown in Stage 2 only.", 11f, muted))
+            connSec.addView(text("Demo API connection status is shown in Stage 2 only.", 11f, muted).apply { textAlignment = View.TEXT_ALIGNMENT_VIEW_START })
         }
+
+        fun applyMarketOverview(ov: MarketOverview?) {
+            val connected = ov?.dataAvailable == true
+            val stale = ov?.stale == true
+            val status = when {
+                ov == null -> "Disconnected"
+                connected && !stale -> "Connected"
+                connected && stale -> "Stale"
+                else -> "Disconnected"
+            }
+            val color = when (status) { "Connected" -> green; "Stale" -> yellow; else -> red }
+            marketStatusTv.text = status
+            marketStatusTv.setTextColor(color)
+            val ts = ov?.lastUpdate?.takeIf { it.isNotBlank() }
+            lastUpdateTv.text = ts ?: "Not available"
+            val err = ov?.error?.takeIf { it.isNotBlank() }
+            if (!connected && err != null) {
+                marketErrorTv.text = err
+                marketErrorTv.visibility = View.VISIBLE
+            } else {
+                marketErrorTv.text = ""
+                marketErrorTv.visibility = View.GONE
+            }
+        }
+
+        fun refreshConnectionStatus() {
+            // Always verify with a fresh public Binance market data check (read-only, no Demo API credentials).
+            applyMarketOverview(lastOverview)
+            lifecycleScope.launch {
+                try {
+                    val ov = marketRepo.getOverview()
+                    lastOverview = ov
+                    applyMarketOverview(ov)
+                } catch (e: Exception) {
+                    val fallback = lastOverview
+                    if (fallback?.dataAvailable == true) {
+                        applyMarketOverview(fallback)
+                    } else {
+                        marketStatusTv.text = "Disconnected"
+                        marketStatusTv.setTextColor(red)
+                        lastUpdateTv.text = lastOverview?.lastUpdate?.takeIf { it.isNotBlank() } ?: "Not available"
+                        marketErrorTv.text = e.message?.takeIf { it.isNotBlank() } ?: "Unable to reach Binance market data."
+                        marketErrorTv.visibility = View.VISIBLE
+                    }
+                }
+            }
+            if (activeStage == TradingStage.STAGE_2) {
+                val st = DemoConnectionStore.status(this)
+                val dColor = when (st) { "CONNECTED" -> green; "ERROR" -> red; else -> muted }
+                val dLabel = when (st) { "CONNECTED" -> "Connected"; "ERROR" -> "Error"; else -> "Disconnected" }
+                demoStatusTv?.text = dLabel
+                demoStatusTv?.setTextColor(dColor)
+                val msg = DemoConnectionStore.message(this)
+                if (!msg.isNullOrBlank()) { demoMsgTv?.text = msg; demoMsgTv?.visibility = View.VISIBLE } else { demoMsgTv?.visibility = View.GONE }
+            }
+        }
+        refreshConnectionStatus()
 
         // 4. Wallet Management
         val (_, walletSec) = expandableSection("Wallet Management", true)
@@ -1461,9 +1546,10 @@ class MainActivity : AppCompatActivity() {
                 lifecycleScope.launch {
                     try {
                         val w = engine().getWallet()
-                        balTv.text = "Current Virtual Wallet Balance: ${PriceFormatter.formatUsdt(w.availableBalance + w.reservedMargin)} USDT (Available ${PriceFormatter.formatUsdt(w.availableBalance)} / Reserved ${PriceFormatter.formatUsdt(w.reservedMargin)})"
+                        balTv.text = "Current Virtual Wallet Balance: ${PriceFormatter.formatUsdt(w.availableBalance + w.reservedMargin)} (Available ${PriceFormatter.formatUsdt(w.availableBalance)} / Reserved ${PriceFormatter.formatUsdt(w.reservedMargin)})"
                         balTv.setTextColor(white)
-                        startTv.text = "Starting Virtual Wallet Balance: ${PriceFormatter.formatUsdt(w.startingBalance)} USDT"
+                        balTv.textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+                        startTv.text = "Starting Virtual Wallet Balance: ${PriceFormatter.formatUsdt(w.startingBalance)}"
                     } catch (_: Exception) {
                         balTv.text = "Unable to load virtual wallet."
                         balTv.setTextColor(red)
@@ -1473,7 +1559,7 @@ class MainActivity : AppCompatActivity() {
                 val resetBtn = addButton(walletSec, "RESET VIRTUAL WALLET", red)
                 resetBtn.setOnClickListener {
                     AlertDialog.Builder(this).setTitle("Reset Stage 1 Virtual Wallet?")
-                        .setMessage("This will reset Stage 1 virtual wallet to 5,000.00 USDT and clear Stage 1 simulated trading records. This action requires confirmation and does not affect Stage 2 or Stage 3.")
+                        .setMessage("This will reset the Stage 1 virtual wallet to 5,000.00 USDT and clear Stage 1 simulated trading records. This action requires confirmation and does not affect Stage 2 or Stage 3.")
                         .setNegativeButton("CANCEL", null)
                         .setPositiveButton("RESET") { _, _ ->
                             lifecycleScope.launch {
@@ -1487,14 +1573,14 @@ class MainActivity : AppCompatActivity() {
             TradingStage.STAGE_2 -> {
                 val demoBalTv = text("Loading Binance Demo wallet...", 12f, muted)
                 walletSec.addView(demoBalTv)
-                walletSec.addView(text("Source: Binance USDÃ¢â€œË†-M Futures Demo account (not Stage 1 virtual balance).", 11f, muted))
+                walletSec.addView(text("Source: Binance USDâ“ˆ-M Futures Demo account (not Stage 1 virtual balance).", 11f, muted).apply { textAlignment = View.TEXT_ALIGNMENT_VIEW_START })
                 lifecycleScope.launch {
                     try {
                         val snap = demoRepo.fetchSnapshot(this@MainActivity)
                         if (snap.ok) {
                             val avail = snap.availableBalance
                             val total = snap.totalWalletBalance
-                            demoBalTv.text = "Available Balance: ${avail?.let { PriceFormatter.formatUsdt(it) } ?: "--"} USDT\nTotal Wallet Balance: ${total?.let { PriceFormatter.formatUsdt(it) } ?: "--"} USDT"
+                            demoBalTv.text = "Available Balance: ${avail?.let { PriceFormatter.formatUsdt(it) } ?: "-- USDT"}\nTotal Wallet Balance: ${total?.let { PriceFormatter.formatUsdt(it) } ?: "-- USDT"}"
                             demoBalTv.setTextColor(white)
                         } else {
                             demoBalTv.text = "Demo wallet unavailable: ${snap.error ?: "Not connected/configured"}"
@@ -1511,7 +1597,8 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             TradingStage.STAGE_3 -> {
-                walletSec.addView(text("Live USDÃ¢â€œË†-M wallet information is not available because Live Trading is disabled and no authorized secure Live API integration is active in this build.", 12f, muted))
+                walletSec.addView(text("Live USDâ“ˆ-M wallet information is not available because Live Trading is disabled and no authorized secure Live API integration is active in this build.", 12f, muted).apply { textAlignment = View.TEXT_ALIGNMENT_VIEW_START })
+                addSpace(walletSec, 4)
                 walletSec.addView(text("No reset action is available for Demo or Live wallets.", 11f, muted))
             }
         }
@@ -1527,16 +1614,16 @@ class MainActivity : AppCompatActivity() {
         safeSec.addView(statusRow("Trading Stage Isolation", "Enabled", green))
         safeSec.addView(statusRow("Live Trading Status", liveStatus, if (liveStatus == "Enabled") red else green))
         safeSec.addView(statusRow("API Security Status", if (apiSecurity.startsWith("Protected")) "Protected" else "Not Configured", if (apiSecurity.startsWith("Protected")) green else yellow))
-        safeSec.addView(text(apiSecurity, 11f, muted))
+        safeSec.addView(text(apiSecurity, 11f, muted).apply { textAlignment = View.TEXT_ALIGNMENT_VIEW_START })
         addSpace(safeSec, 4)
-        safeSec.addView(text("Ã¢â‚¬Â¢ Stage 1 uses virtual funds only (local simulation). No real Binance orders.", 12f, muted))
-        safeSec.addView(text("Ã¢â‚¬Â¢ Stage 2 uses Binance Futures Demo funds/API only. Demo credentials are not used for Live.", 12f, muted))
-        safeSec.addView(text("Ã¢â‚¬Â¢ Stage 3 requires deliberate activation and authorized Live API credentials. Live trading is not active in this build.", 12f, muted))
+        safeSec.addView(text("â€¢ Stage 1 uses virtual funds only (local simulation). No real Binance orders.", 12f, muted).apply { textAlignment = View.TEXT_ALIGNMENT_VIEW_START })
+        safeSec.addView(text("â€¢ Stage 2 uses Binance Futures Demo funds/API only. Demo credentials are not used for Live.", 12f, muted).apply { textAlignment = View.TEXT_ALIGNMENT_VIEW_START })
+        safeSec.addView(text("â€¢ Stage 3 requires deliberate activation and authorized Live API credentials. Live trading is not active in this build.", 12f, muted).apply { textAlignment = View.TEXT_ALIGNMENT_VIEW_START })
 
         // 6. About
         val (_, aboutSec) = expandableSection("About", false)
         aboutSec.addView(text("About BAB", 13f, white, true))
-        aboutSec.addView(text("Binance Android Bot (BAB) is a multi-stage Binance USDÃ¢â€œË†-M trading app with strict isolation between Virtual, Demo, and Live environments.", 12f, muted))
+        aboutSec.addView(text("Binance Android Bot (BAB) is a multi-stage Binance USDâ“ˆ-M trading app with strict isolation between Virtual, Demo, and Live environments.", 12f, muted).apply { textAlignment = View.TEXT_ALIGNMENT_VIEW_START })
         addSpace(aboutSec, 6)
         aboutSec.addView(statusRow("Application", "BAB - Binance Android Bot", white))
         aboutSec.addView(statusRow("Version", BuildConfig.VERSION_NAME, white))

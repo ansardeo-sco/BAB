@@ -48,7 +48,7 @@ object PriceFormatter {
 
     fun formatUsdt(value: Double?): String {
         if (value == null || value.isNaN() || value.isInfinite()) return "-- USDT"
-        return "${String.format(Locale.US, "%.2f", value)} USDT"
+        return "${String.format(Locale.US, "%,.2f", value)} USDT"
     }
 
     /** Unrealized/realized PNL display: exactly 2 decimal places (e.g. +12.35 USDT). */
