@@ -1018,12 +1018,6 @@ class MainActivity : AppCompatActivity() {
         root.addView(subBar); addSpace(root, 8)
         val body = column(); root.addView(body)
 
-        if (stage() == TradingStage.STAGE_2) {
-            // Stage 2: show actual Binance Demo positions/open orders instead of empty local simulation.
-            renderDemoPositionsPage(body)
-            return
-        }
-
         var primaryTab = 0 // 0 Position, 1 Open Order, 2 History
         var positionSub = 0 // 0 Open, 1 Closed
         var orderSub = 0 // 0 Basic, 1 TP, 2 SL
@@ -1032,7 +1026,7 @@ class MainActivity : AppCompatActivity() {
         var subViews: List<TextView> = emptyList()
 
         fun stylePrimary(posCount: Int, openCount: Int, histCount: Int) {
-            val labels = listOf("Position ($posCount)", "Open Order ($openCount)", "History ($histCount)")
+            val labels = listOf("Positions ($posCount)", "Open Orders ($openCount)", "History ($histCount)")
             primaryViews.forEachIndexed { i, tv ->
                 tv.text = labels[i]; val sel = i == primaryTab
                 tv.setTextColor(if (sel) yellow else muted)
@@ -1239,7 +1233,7 @@ class MainActivity : AppCompatActivity() {
         }
         renderTrigger = { render() }
         var lastPrimary = -1
-        primaryViews = listOf("Position","Open Order","History").mapIndexed { i, _ ->
+        primaryViews = listOf("Positions","Open Orders","History").mapIndexed { i, _ ->
             TextView(this).apply {
                 gravity = Gravity.CENTER; setPadding(dp(8), dp(10), dp(8), dp(10)); textSize = 12f
                 setOnClickListener {
