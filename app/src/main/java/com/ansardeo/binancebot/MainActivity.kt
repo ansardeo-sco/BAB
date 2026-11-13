@@ -836,6 +836,169 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun renderDemoPositionsOpen(body: LinearLayout, snap: DemoStageRepository.DemoSnapshot) {
+        body.removeAllViews()
+        if (!snap.ok) { body.addView(text(snap.error ?: "Unable to load Binance Demo data.", 13f, red)); return }
+        val posCard = addCard(body, "DEMO POSITIONS (OPEN)", "Actual Binance USDⓈ-M Futures Demo positions.")
+        val positions = snap.positions
+        var any = false
+        for (i in 0 until positions.length()) {
+            val p = positions.optJSONObject(i) ?: continue
+            val sym = p.optString("symbol")
+            val amt = p.optString("positionAmt").toDoubleOrNull() ?: 0.0
+            if (kotlin.math.abs(amt) <= 1e-12) continue
+            any = true
+            val side = if (amt > 0) "LONG" else "SHORT"
+            val entry = p.optString("entryPrice").toDoubleOrNull()
+            val mark = p.optString("markPrice").toDoubleOrNull()
+            val pnl = p.optString("unRealizedProfit").toDoubleOrNull()
+            val lev = p.optString("leverage").toIntOrNull() ?: 0
+            val box = makeItemCard(posCard)
+            val h = row()
+            h.addView(text(sym, 15f, white, true), LinearLayout.LayoutParams(0, -2, 1f))
+            h.addView(text(side, 12f, if (side == "LONG") green else red, true))
+            box.addView(h)
+            addLabel(box, "Quantity", PriceFormatter.formatQty(kotlin.math.abs(amt)), white, true)
+            addLabel(box, "Avg Entry Price", entry?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+            addLabel(box, "Mark Price", mark?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+            addLabel(box, "Unrealized PNL", pnl?.let { PriceFormatter.formatPnl(it) } ?: "--", pnlColor(pnl), true)
+            addLabel(box, "Leverage", "${lev}x", white, true)
+        }
+        if (!any) posCard.addView(text("No open Demo positions.", 12f, muted))
+        addSpace(body, 8)
+        addButton(body, "REFRESH", yellow).setOnClickListener { showPage("Future") }
+    }
+
+    private fun renderDemoOrdersBasic(body: LinearLayout, snap: DemoStageRepository.DemoSnapshot) {
+        body.removeAllViews()
+        if (!snap.ok) { body.addView(text(snap.error ?: "Unable to load.", 13f, red)); return }
+        val card = addCard(body, "DEMO OPEN ORDERS (BASIC)", "Regular Binance Demo open orders (incl. manual).")
+        val orders = snap.openOrders
+        if (orders.length() == 0) { card.addView(text("No open Demo orders.", 12f, muted)); return }
+        for (i in 0 until orders.length()) {
+            val o = orders.optJSONObject(i) ?: continue
+            val sym = o.optString("symbol")
+            val side = o.optString("side")
+            val type = o.optString("type")
+            val price = o.optString("price").toDoubleOrNull()
+            val qty = o.optString("origQty").toDoubleOrNull()
+            val filled = o.optString("executedQty").toDoubleOrNull()
+            val status = o.optString("status")
+            val oid = o.optString("orderId")
+            val box = makeItemCard(card)
+            val h = row()
+            h.addView(text("$sym $side", 15f, if (side == "BUY") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+            h.addView(text(status, 12f, statusBadgeColor(status), true))
+            box.addView(h)
+            addLabel(box, "Order Type", type, yellow, true)
+            addLabel(box, "Price", price?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+            addLabel(box, "Quantity", qty?.let { PriceFormatter.formatQty(it) } ?: "--", white, true)
+            addLabel(box, "Filled", filled?.let { PriceFormatter.formatQty(it) } ?: "--", white, true)
+            addLabel(box, "Remaining", if (qty != null && filled != null) PriceFormatter.formatQty((qty - filled).coerceAtLeast(0.0)) else "--", white, true)
+            addLabel(box, "Order ID", oid, muted)
+        }
+    }
+
+    private fun renderDemoOrdersConditional(body: LinearLayout, snap: DemoStageRepository.DemoSnapshot) {
+        body.removeAllViews()
+        if (!snap.ok) { body.addView(text(snap.error ?: "Unable to load.", 13f, red)); return }
+        val card = addCard(body, "DEMO OPEN ALGO ORDERS (CONDITIONAL)", "Binance Demo algo/protective orders (TP/SL/Trailing).")
+        val algos = snap.openAlgoOrders
+        if (algos.length() == 0) { card.addView(text("No open Demo algo orders.", 12f, muted)); return }
+        for (i in 0 until algos.length()) {
+            val a = algos.optJSONObject(i) ?: continue
+            val sym = a.optString("symbol")
+            val side = a.optString("side")
+            val type = a.optString("type")
+            val trigger = a.optString("triggerPrice").toDoubleOrNull() ?: a.optString("stopPrice").toDoubleOrNull()
+            val qty = a.optString("quantity").toDoubleOrNull() ?: a.optString("origQty").toDoubleOrNull()
+            val status = a.optString("algoStatus").ifBlank { a.optString("status") }
+            val aid = a.optString("algoId").ifBlank { a.optString("orderId") }
+            val callback = a.optString("callbackRate").ifBlank { a.optString("callbackRatePercent") }
+            val box = makeItemCard(card)
+            val h = row()
+            h.addView(text("$sym $side", 15f, if (side == "BUY") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+            h.addView(text(status, 12f, statusBadgeColor(status), true))
+            box.addView(h)
+            addLabel(box, "Order Type", type, yellow, true)
+            addLabel(box, "Trigger Price", trigger?.let { PriceFormatter.formatPrice(it) } ?: "--", red, true)
+            addLabel(box, "Quantity", qty?.let { PriceFormatter.formatQty(it) } ?: "--", white, true)
+            if (callback.isNotBlank()) addLabel(box, "Callback Rate", callback, white, true)
+            addLabel(box, "Algo Order ID", aid, muted)
+        }
+    }
+
+    private fun renderDemoHistoryOpen(body: LinearLayout) {
+        body.removeAllViews()
+        val dao = paperDb.dao()
+        val sid = stageId()
+        val card = addCard(body, "ACTIVE CYCLES / PENDING", "Stage 2 local tracking of detected positions and pending plans.")
+        val active = dao.getActiveCyclesWithEntries(sid).filter { cwe -> cwe.cycle.status in listOf("PENDING_ENTRY","ACTIVE","CLOSING") }
+        if (active.isEmpty()) { card.addView(text("No active Stage 2 cycles.", 12f, muted)) }
+        for (cwe in active) {
+            val c = cwe.cycle
+            val box = makeItemCard(card)
+            val h = row()
+            h.addView(text("${c.symbol} ${c.direction}", 15f, if (c.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+            h.addView(text(c.status, 12f, yellow, true))
+            box.addView(h)
+            val openEntries = cwe.entries.filter { it.status == "FILLED" && it.remainingQuantity > 1e-12 }
+            val ts = openEntries.firstOrNull()?.trailingStopPrice
+            addLabel(box, "Avg Entry", c.averageEntryPrice?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+            addLabel(box, "Remaining Qty", PriceFormatter.formatQty(c.totalRemainingQuantity), white, true)
+            addLabel(box, "Trailing Status", if (openEntries.any { it.trailingActivated }) "TRAILING ACTIVE" else "WAITING FOR ACTIVATION", if (openEntries.any { it.trailingActivated }) green else yellow, true)
+            if (ts != null) addLabel(box, "Trailing Stop Price", PriceFormatter.formatPrice(ts), yellow, true)
+            addLabel(box, "Averaging", if (c.averagingDone) "DONE" else if (c.averagingOrdersPlaced) "PLACED" else if (c.averagingTriggeredAtRoi) "TRIGGERED" else "PENDING", muted, true)
+        }
+        val plans = dao.getPendingReentryPlans(sid)
+        if (plans.isNotEmpty()) {
+            addSpace(card, 6)
+            card.addView(text("Pending Re-entry Plans: ${plans.size}", 12f, yellow, true))
+            for (p in plans) {
+                addLabel(card, "${p.symbol} ${p.direction}", "${p.status} @ ${PriceFormatter.formatPrice(p.triggerPrice)}", muted, true)
+            }
+        }
+        addSpace(body, 8)
+        addButton(body, "REFRESH", yellow).setOnClickListener { showPage("Future") }
+    }
+
+    private fun renderOrdersConditional(body: LinearLayout, openPositions: List<PaperCycleWithEntries>, protectiveSlOrders: List<PaperOrderEntity>, cycleById: Map<Long, PaperCycleEntity>, prices: Map<String, Ticker>, priceState: String) {
+        body.removeAllViews()
+        // Trailing Stop (TP) conditional orders
+        body.addView(text("Trailing Stop (TP) Orders", 13f, yellow, true)); addSpace(body, 4)
+        renderOrdersTp(body, openPositions, prices, priceState)
+        addSpace(body, 8)
+        body.addView(text("Stop Loss Orders", 13f, yellow, true)); addSpace(body, 4)
+        renderOrdersSl(body, protectiveSlOrders, cycleById, prices, priceState)
+    }
+
+    private fun renderHistoryOpen(body: LinearLayout, active: List<PaperCycleWithEntries>, reentries: List<PaperReentryPlanEntity>, openPositions: List<PaperCycleWithEntries>) {
+        body.removeAllViews()
+        if (active.isEmpty() && reentries.isEmpty()) { body.addView(text("No active cycles or pending plans.", 13f, muted)); return }
+        for (cwe in active) {
+            val c = cwe.cycle
+            val box = makeItemCard(body)
+            val h = row()
+            h.addView(text("${c.symbol} ${c.direction}", 15f, if (c.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+            h.addView(text(c.status, 12f, yellow, true))
+            box.addView(h)
+            addLabel(box, "Avg Entry", c.averageEntryPrice?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+            addLabel(box, "Remaining Qty", PriceFormatter.formatQty(c.totalRemainingQuantity), white, true)
+            val openEntries = cwe.entries.filter { it.status == "FILLED" && it.remainingQuantity > 1e-12 }
+            val ts = openEntries.firstOrNull()?.trailingStopPrice
+            addLabel(box, "Trailing Status", if (openEntries.any { it.trailingActivated }) "TRAILING ACTIVE" else "WAITING FOR ACTIVATION", if (openEntries.any { it.trailingActivated }) green else yellow, true)
+            if (ts != null) addLabel(box, "Trailing Stop Price", PriceFormatter.formatPrice(ts), yellow, true)
+            addLabel(box, "Averaging", if (c.averagingDone) "DONE" else if (c.averagingOrdersPlaced) "PLACED" else if (c.averagingTriggeredAtRoi) "TRIGGERED" else "PENDING", muted, true)
+        }
+        if (reentries.isNotEmpty()) {
+            addSpace(body, 6)
+            body.addView(text("Pending Re-entry Plans: ${reentries.size}", 12f, yellow, true))
+            for (r in reentries) {
+                addLabel(body, "${r.symbol} ${r.direction}", "${r.status} @ ${PriceFormatter.formatPrice(r.triggerPrice)}", muted, true)
+            }
+        }
+    }
+
     private fun positionsPage() /* Future tab */ {
         stopRefresh(); updateTopStatus()
         val root = pageContainer()
@@ -883,7 +1046,7 @@ class MainActivity : AppCompatActivity() {
         var renderTrigger: (() -> Unit)? = null
         fun rebuildSubTabs() {
             subBar.removeAllViews()
-            val count = if (primaryTab == 1) 3 else 2
+            val count = 2
             subViews = (0 until count).map { i ->
                 TextView(this).apply {
                     gravity = Gravity.CENTER; setPadding(dp(8), dp(8), dp(8), dp(8)); textSize = 11f
@@ -976,22 +1139,26 @@ class MainActivity : AppCompatActivity() {
                 try {
                     if (stage() == TradingStage.STAGE_2) {
                         subBar.visibility = View.VISIBLE
-                        // Simple tabs for demo: Position/Open Orders/History
-                        stylePrimary(0, 0, 0)
-                        when (primaryTab) {
-                            0 -> styleSub(listOf("Positions", "Account"))
-                            1 -> styleSub(listOf("Open Orders", "Algo Orders"))
-                            2 -> styleSub(listOf("History", "Info"))
-                        }
                         val snap = demoRepo.fetchSnapshot(this@MainActivity)
-                        // Adjust counts in labels best-effort
-                        val posCount = (0 until snap.positions.length()).count { i ->
+                        val posCount = if (snap.ok) (0 until snap.positions.length()).count { i ->
                             val a = snap.positions.optJSONObject(i)?.optString("positionAmt")?.toDoubleOrNull() ?: 0.0
                             kotlin.math.abs(a) > 1e-12
+                        } else 0
+                        val basicCount = if (snap.ok) snap.openOrders.length() else 0
+                        val condCount = if (snap.ok) snap.openAlgoOrders.length() else 0
+                        val closedCount = paperDb.dao().getHistoryCloses(stageId(), 500).size
+                        stylePrimary(posCount, basicCount, closedCount)
+                        when (primaryTab) {
+                            0 -> styleSub(listOf("Open ($posCount)", "Closed ($closedCount)"))
+                            1 -> styleSub(listOf("Basic ($basicCount)", "Conditional ($condCount)"))
+                            2 -> styleSub(listOf("Open", "Closed ($closedCount)"))
                         }
-                        val ordCount = snap.openOrders.length() + snap.openAlgoOrders.length()
-                        stylePrimary(if (snap.ok) posCount else 0, if (snap.ok) ordCount else 0, 0)
-                        renderDemoSnapshot(body, snap)
+                        body.removeAllViews()
+                        when (primaryTab) {
+                            0 -> if (positionSub == 0) renderDemoPositionsOpen(body, snap) else renderPositionsClosed(body, paperDb.dao().getHistoryCloses(stageId(), 500))
+                            1 -> if (orderSub == 0) renderDemoOrdersBasic(body, snap) else renderDemoOrdersConditional(body, snap)
+                            2 -> if (historySub == 0) renderDemoHistoryOpen(body) else renderHistoryCloses(body, paperDb.dao().getHistoryCloses(stageId(), 500))
+                        }
                         return@launch
                     }
 
@@ -1046,18 +1213,14 @@ class MainActivity : AppCompatActivity() {
                     subBar.visibility = View.VISIBLE
                     when (primaryTab) {
                         0 -> styleSub(listOf("Open ($openPositionCount)", "Closed (${history.size})"))
-                        1 -> styleSub(listOf("Basic ($basicCount)", "TP ($tpCount)", "SL ($slCount)"))
-                        2 -> styleSub(listOf("Fills (${fillRecords.size})", "Closes (${history.size})"))
+                        1 -> styleSub(listOf("Basic ($basicCount)", "Conditional ($tpCount)"))
+                        2 -> styleSub(listOf("Open", "Closed (${history.size})"))
                     }
                     body.removeAllViews()
                     when (primaryTab) {
                         0 -> if (positionSub == 0) renderPositionsOpen(body, openPositions, prices, priceState) else renderPositionsClosed(body, history)
-                        1 -> when (orderSub) {
-                            0 -> renderOrdersBasic(body, openEntryOrders, reentries, conditionalOpposites, prices, priceState)
-                            1 -> renderOrdersTp(body, openPositions, prices, priceState)
-                            else -> renderOrdersSl(body, protectiveSlOrders, cycleById, prices, priceState)
-                        }
-                        2 -> if (historySub == 0) renderHistoryFills(body, fillRecords) else renderHistoryCloses(body, history)
+                        1 -> if (orderSub == 0) renderOrdersBasic(body, openEntryOrders, reentries, conditionalOpposites, prices, priceState) else renderOrdersConditional(body, openPositions, protectiveSlOrders, cycleById, prices, priceState)
+                        2 -> if (historySub == 0) renderHistoryOpen(body, active, reentries, openPositions) else renderHistoryCloses(body, history)
                     }
                 } catch (e: Exception) {
                     body.removeAllViews(); body.addView(text("Unable to load: ${e.message?.take(60) ?: ""}", 12f, red))
