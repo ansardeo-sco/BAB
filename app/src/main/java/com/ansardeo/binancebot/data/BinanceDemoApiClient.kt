@@ -92,8 +92,11 @@ class BinanceDemoApiClient(
 
     suspend fun getServerTime(): Long? = withContext(Dispatchers.IO) {
         try {
-            val text = getText("https://demo-fapi.binance.com/fapi/v1/time")
-            JSONObject(text).optLong("serverTime").takeIf { it > 0 }
+            client.newCall(Request.Builder().url("https://demo-fapi.binance.com/fapi/v1/time").get().build()).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) return@withContext null
+                JSONObject(body).optLong("serverTime").takeIf { it > 0 }
+            }
         } catch (_: Exception) { null }
     }
 
