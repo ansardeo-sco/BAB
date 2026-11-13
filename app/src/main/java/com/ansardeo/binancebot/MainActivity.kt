@@ -930,32 +930,42 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderDemoHistoryOpen(body: LinearLayout) {
         body.removeAllViews()
-        val dao = paperDb.dao()
-        val sid = stageId()
         val card = addCard(body, "ACTIVE CYCLES / PENDING", "Stage 2 local tracking of detected positions and pending plans.")
-        val active = dao.getActiveCyclesWithEntries(sid).filter { cwe -> cwe.cycle.status in listOf("PENDING_ENTRY","ACTIVE","CLOSING") }
-        if (active.isEmpty()) { card.addView(text("No active Stage 2 cycles.", 12f, muted)) }
-        for (cwe in active) {
-            val c = cwe.cycle
-            val box = makeItemCard(card)
-            val h = row()
-            h.addView(text("${c.symbol} ${c.direction}", 15f, if (c.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
-            h.addView(text(c.status, 12f, yellow, true))
-            box.addView(h)
-            val openEntries = cwe.entries.filter { it.status == "FILLED" && it.remainingQuantity > 1e-12 }
-            val ts = openEntries.firstOrNull()?.trailingStopPrice
-            addLabel(box, "Avg Entry", c.averageEntryPrice?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
-            addLabel(box, "Remaining Qty", PriceFormatter.formatQty(c.totalRemainingQuantity), white, true)
-            addLabel(box, "Trailing Status", if (openEntries.any { it.trailingActivated }) "TRAILING ACTIVE" else "WAITING FOR ACTIVATION", if (openEntries.any { it.trailingActivated }) green else yellow, true)
-            if (ts != null) addLabel(box, "Trailing Stop Price", PriceFormatter.formatPrice(ts), yellow, true)
-            addLabel(box, "Averaging", if (c.averagingDone) "DONE" else if (c.averagingOrdersPlaced) "PLACED" else if (c.averagingTriggeredAtRoi) "TRIGGERED" else "PENDING", muted, true)
-        }
-        val plans = dao.getPendingReentryPlans(sid)
-        if (plans.isNotEmpty()) {
-            addSpace(card, 6)
-            card.addView(text("Pending Re-entry Plans: ${plans.size}", 12f, yellow, true))
-            for (p in plans) {
-                addLabel(card, "${p.symbol} ${p.direction}", "${p.status} @ ${PriceFormatter.formatPrice(p.triggerPrice)}", muted, true)
+        val loading = text("Loading...", 12f, muted)
+        card.addView(loading)
+        lifecycleScope.launch {
+            try {
+                val dao = paperDb.dao()
+                val sid = stageId()
+                val active = dao.getActiveCyclesWithEntries(sid).filter { cwe -> cwe.cycle.status in listOf("PENDING_ENTRY","ACTIVE","CLOSING") }
+                card.removeView(loading)
+                if (active.isEmpty()) { card.addView(text("No active Stage 2 cycles.", 12f, muted)) }
+                for (cwe in active) {
+                    val c = cwe.cycle
+                    val box = makeItemCard(card)
+                    val h = row()
+                    h.addView(text("${c.symbol} ${c.direction}", 15f, if (c.direction == "LONG") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+                    h.addView(text(c.status, 12f, yellow, true))
+                    box.addView(h)
+                    val openEntries = cwe.entries.filter { it.status == "FILLED" && it.remainingQuantity > 1e-12 }
+                    val ts = openEntries.firstOrNull()?.trailingStopPrice
+                    addLabel(box, "Avg Entry", c.averageEntryPrice?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+                    addLabel(box, "Remaining Qty", PriceFormatter.formatQty(c.totalRemainingQuantity), white, true)
+                    addLabel(box, "Trailing Status", if (openEntries.any { it.trailingActivated }) "TRAILING ACTIVE" else "WAITING FOR ACTIVATION", if (openEntries.any { it.trailingActivated }) green else yellow, true)
+                    if (ts != null) addLabel(box, "Trailing Stop Price", PriceFormatter.formatPrice(ts), yellow, true)
+                    addLabel(box, "Averaging", if (c.averagingDone) "DONE" else if (c.averagingOrdersPlaced) "PLACED" else if (c.averagingTriggeredAtRoi) "TRIGGERED" else "PENDING", muted, true)
+                }
+                val plans = dao.getPendingReentryPlans(sid)
+                if (plans.isNotEmpty()) {
+                    addSpace(card, 6)
+                    card.addView(text("Pending Re-entry Plans: ${plans.size}", 12f, yellow, true))
+                    for (p in plans) {
+                        addLabel(card, "${p.symbol} ${p.direction}", "${p.status} @ ${PriceFormatter.formatPrice(p.triggerPrice)}", muted, true)
+                    }
+                }
+            } catch (e: Exception) {
+                card.removeView(loading)
+                card.addView(text("Unable to load: ${e.message?.take(60)}", 12f, red))
             }
         }
         addSpace(body, 8)
