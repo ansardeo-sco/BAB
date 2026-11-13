@@ -61,8 +61,10 @@ class ManualEntryActivity : AppCompatActivity() {
         val btnOpenShort = findViewById<Button>(R.id.btnOpenShort)
         val result = findViewById<TextView>(R.id.txtManualResult)
 
+        val savedDefaults = LocalCoinSettingsStore.loadGlobal(this)
         leverageSpinner.adapter = darkAdapter(LeverageConfig.SUPPORTED_LEVERAGES.map { "${it}x" })
-        leverageSpinner.setSelection(LeverageConfig.SUPPORTED_LEVERAGES.indexOf(6).coerceAtLeast(0))
+        leverageSpinner.setSelection(LeverageConfig.SUPPORTED_LEVERAGES.indexOf(savedDefaults.leverage).coerceAtLeast(0))
+        marginInput.setText(String.format(Locale.US, "%.4f", savedDefaults.marginAmount).trimEnd('0').trimEnd('.').ifBlank { "2" })
         symbolInput.setAdapter(ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, mutableListOf<String>()))
 
         var livePrice: Double? = null

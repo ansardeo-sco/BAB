@@ -20,10 +20,6 @@ import com.ansardeo.binancebot.BuildConfig
 import com.ansardeo.binancebot.data.*
 import com.ansardeo.binancebot.paper.PaperEngine
 import com.ansardeo.binancebot.paper.PaperEngineProvider
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
-import android.os.Environment
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.text.InputType
@@ -451,9 +447,23 @@ class MainActivity : AppCompatActivity() {
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
 
-        leverageSpinner.adapter = createDarkSpinnerAdapter(LeverageConfig.SUPPORTED_LEVERAGES.map { "${it}x" })
-        leverageSpinner.setSelection(LeverageConfig.SUPPORTED_LEVERAGES.indexOf(6).coerceAtLeast(0))
+        val savedDefaults = LocalCoinSettingsStore.loadGlobal(this)
+        val levAdapter = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, LeverageConfig.SUPPORTED_LEVERAGES.map { "${it}x" }) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = (convertView as? TextView) ?: TextView(context)
+                v.text = getItem(position); v.setTextColor(white); v.gravity = Gravity.CENTER; v.textAlignment = View.TEXT_ALIGNMENT_CENTER
+                v.setPadding(dp(8), dp(10), dp(8), dp(10)); return v
+            }
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = (convertView as? TextView) ?: TextView(context)
+                v.text = getItem(position); v.setTextColor(white); v.setBackgroundColor(inputBg); v.gravity = Gravity.CENTER; v.textAlignment = View.TEXT_ALIGNMENT_CENTER
+                v.setPadding(dp(12), dp(12), dp(12), dp(12)); return v
+            }
+        }
+        leverageSpinner.adapter = levAdapter
+        leverageSpinner.setSelection(LeverageConfig.SUPPORTED_LEVERAGES.indexOf(savedDefaults.leverage).coerceAtLeast(0))
         leverageSpinner.setPopupBackgroundDrawable(rounded(inputBg, 10))
+        marginInput.setText(String.format(Locale.US, "%.4f", savedDefaults.marginAmount).trimEnd('0').trimEnd('.').ifBlank { "2" })
         symbolInput.setAdapter(ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, mutableListOf<String>()))
 
         fun previewRow(parent: LinearLayout, label: String, value: String, valueColor: Int = white, prominent: Boolean = false) {
@@ -878,8 +888,8 @@ class MainActivity : AppCompatActivity() {
                     val tpCount = openPositionCount // trailing-stop (TP) orders, one per open executed entry
                     val slCount = protectiveSlOrders.size
                     val basicCount = openEntryOrders.size + reentries.size + conditionalOpposites.size
-                    val openOrderCount = basicCount + tpCount + slCount
-                    val historyCount = (fillRecords.size - history.size).coerceAtLeast(0)
+                    val openOrderCount = basicCount // Main Open Orders tab shows Basic orders only
+                    val historyCount = history.size // Main History tab shows Closes only
                     stylePrimary(openPositionCount, openOrderCount, historyCount)
                     subBar.visibility = View.VISIBLE
                     when (primaryTab) {
@@ -1151,11 +1161,11 @@ class MainActivity : AppCompatActivity() {
             val side = cycle?.direction ?: o.direction
             addLabel(box, "Position Side", side, if (side == "LONG") green else red, true)
             addLabel(box, "Order Type", "STOP LOSS", yellow, true)
-            addLabel(box, "Order ID", o.exchangeOrderId ?: o.clientOrderId, muted)
             addLabel(box, "Current Price", currentPriceText(prices, o.symbol, priceState), white, true)
             addLabel(box, "Trigger Price", PriceFormatter.formatPrice(o.triggerPrice), red, true)
             addLabel(box, "Order Quantity", PriceFormatter.formatQty(o.quantity), white, true)
             addLabel(box, "Reduce Only", "YES", white, true)
+            addLabel(box, "Order ID", o.exchangeOrderId ?: o.clientOrderId, muted)
             addLabel(box, "Created At", fmtDateTime(o.createdAt), muted)
             addLabel(box, "Updated At", fmtDateTime(o.updatedAt), muted)
         }
@@ -1257,168 +1267,289 @@ class MainActivity : AppCompatActivity() {
         }
 
         // ---- Binance Demo API Configuration (Stage 2 only) ----
-        val demoCard = addCard(root, "BINANCE DEMO API CONFIGURATION", "Stage 2 only: Binance USDⓈ-M Futures Demo (https://demo-fapi.binance.com). Credentials are encrypted on-device (Android Keystore-backed). Never used for Live Trading.")
-        val creds = DemoCredentialsStore.load(this)
-        val statusLabel = text("", 12f, muted, true)
-        fun refreshDemoStatus() {
-            val st = DemoConnectionStore.status(this)
-            val m = DemoConnectionStore.message(this)
-            val ts = DemoConnectionStore.checkedAt(this)
-            val color = when (st) { "CONNECTED" -> green; "ERROR" -> red; else -> muted }
-            statusLabel.setTextColor(color)
-            statusLabel.text = "Status: $st${if (m.isNotBlank()) " — $m" else ""}${if (ts > 0) " (${DemoStageRepository.formatTs(ts)})" else ""}"
-        }
-        demoCard.addView(statusLabel); addSpace(demoCard, 6)
-
-        fun mkSecretInput(label: String, initial: String): Pair<EditText, Switch> {
-            demoCard.addView(text(label, 12f, muted, true))
-            val et = EditText(this).apply {
-                setText(initial); setTextColor(white); setHintTextColor(muted); setBackgroundColor(inputBg)
-                setPadding(dp(10), dp(8), dp(10), dp(8))
-                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                transformationMethod = PasswordTransformationMethod.getInstance()
+        if (stage() == TradingStage.STAGE_2) {
+            val demoCard = addCard(root, "BINANCE DEMO API CONFIGURATION", "Stage 2 only: Binance USDâ“ˆ-M Futures Demo (https://demo-fapi.binance.com). Credentials are encrypted on-device (Android Keystore-backed). Never used for Live Trading.")
+            val creds = DemoCredentialsStore.load(this)
+            val statusLabel = text("", 12f, muted, true)
+            fun refreshDemoStatus() {
+                val st = DemoConnectionStore.status(this)
+                val m = DemoConnectionStore.message(this)
+                val ts = DemoConnectionStore.checkedAt(this)
+                val color = when (st) { "CONNECTED" -> green; "ERROR" -> red; else -> muted }
+                statusLabel.setTextColor(color)
+                statusLabel.text = "Status: $st${if (m.isNotBlank()) "" â€” $m"" else """"}${if (ts > 0) "" (${DemoStageRepository.formatTs(ts)})"" else """"}"
             }
-            demoCard.addView(et, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(4) })
-            val sw = Switch(this).apply { text = "Show"; isChecked = false; setTextColor(muted) }
-            sw.setOnCheckedChangeListener { _, checked ->
-                val sel = et.selectionStart
-                if (checked) { et.transformationMethod = null; et.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD }
-                else { et.transformationMethod = PasswordTransformationMethod.getInstance(); et.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
-                et.setSelection(maxOf(0, sel))
+            demoCard.addView(statusLabel); addSpace(demoCard, 6)
+
+            fun mkSecretInput(label: String, initial: String): Pair<EditText, Switch> {
+                demoCard.addView(text(label, 12f, muted, true))
+                val et = EditText(this).apply {
+                    setText(initial); setTextColor(white); setHintTextColor(muted); setBackgroundColor(inputBg)
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    transformationMethod = PasswordTransformationMethod.getInstance()
+                }
+                demoCard.addView(et, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(4) })
+                val sw = Switch(this).apply { text = "Show"; isChecked = false; setTextColor(muted) }
+                sw.setOnCheckedChangeListener { _, checked ->
+                    val sel = et.selectionStart
+                    if (checked) { et.transformationMethod = null; et.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD }
+                    else { et.transformationMethod = PasswordTransformationMethod.getInstance(); et.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
+                    et.setSelection(maxOf(0, sel))
+                }
+                demoCard.addView(sw); addSpace(demoCard, 6)
+                return et to sw
             }
-            demoCard.addView(sw); addSpace(demoCard, 6)
-            return et to sw
-        }
-        val (apiKeyEt, _) = mkSecretInput("Demo API Key", creds.apiKey)
-        val (secretEt, _) = mkSecretInput("Demo Secret Key", creds.secretKey)
-        val demoMsg = text("", 12f, muted); demoCard.addView(demoMsg); addSpace(demoCard, 4)
+            val (apiKeyEt, _) = mkSecretInput("Demo API Key", creds.apiKey)
+            val (secretEt, _) = mkSecretInput("Demo Secret Key", creds.secretKey)
+            val demoMsg = text("", 12f, muted); demoCard.addView(demoMsg); addSpace(demoCard, 4)
 
-        val rowBtns = row()
-        fun smallBtn(t: String, bgc: Int): TextView = TextView(this).apply {
-            text = t; setTextColor(if (bgc == yellow) 0xFF000000.toInt() else white); setTypeface(typeface, Typeface.BOLD)
-            textSize = 11f; gravity = Gravity.CENTER; setPadding(dp(10), dp(10), dp(10), dp(10)); background = rounded(bgc, 10)
-            layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) }
-        }
-        val saveBtn = smallBtn("SAVE / UPDATE", green)
-        val delBtn = smallBtn("DELETE / CLEAR", red)
-        val testBtn = smallBtn("TEST CONNECTION", yellow)
-        rowBtns.addView(saveBtn); rowBtns.addView(delBtn); rowBtns.addView(testBtn.apply { (layoutParams as LinearLayout.LayoutParams).marginEnd = 0 })
-        demoCard.addView(rowBtns)
+            val rowBtns = row()
+            fun smallBtn(t: String, bgc: Int): TextView = TextView(this).apply {
+                text = t; setTextColor(if (bgc == yellow) 0xFF000000.toInt() else white); setTypeface(typeface, Typeface.BOLD)
+                textSize = 11f; gravity = Gravity.CENTER; setPadding(dp(10), dp(10), dp(10), dp(10)); background = rounded(bgc, 10)
+                layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) }
+            }
+            val saveBtn = smallBtn("SAVE / UPDATE", green)
+            val delBtn = smallBtn("DELETE / CLEAR", red)
+            val testBtn = smallBtn("TEST CONNECTION", yellow)
+            rowBtns.addView(saveBtn); rowBtns.addView(delBtn); rowBtns.addView(testBtn.apply { (layoutParams as LinearLayout.LayoutParams).marginEnd = 0 })
+            demoCard.addView(rowBtns)
 
-        saveBtn.setOnClickListener {
-            val ak = apiKeyEt.text.toString().trim()
-            val sk = secretEt.text.toString().trim()
-            if (ak.isBlank() || sk.isBlank()) { demoMsg.setTextColor(red); demoMsg.text = "Enter both Demo API Key and Secret Key."; return@setOnClickListener }
-            val ok = DemoCredentialsStore.save(this, ak, sk)
-            if (ok) {
-                DemoConnectionStore.save(this, "DISCONNECTED", "Credentials saved. Run Test Connection.")
-                demoMsg.setTextColor(green); demoMsg.text = "Demo credentials saved securely on this device (Stage 2 only)."
-                toast("Demo credentials saved")
-            } else {
-                demoMsg.setTextColor(red); demoMsg.text = "Failed to save credentials securely."
+            saveBtn.setOnClickListener {
+                val ak = apiKeyEt.text.toString().trim()
+                val sk = secretEt.text.toString().trim()
+                if (ak.isBlank() || sk.isBlank()) { demoMsg.setTextColor(red); demoMsg.text = "Enter both Demo API Key and Secret Key."; return@setOnClickListener }
+                val ok = DemoCredentialsStore.save(this, ak, sk)
+                if (ok) {
+                    DemoConnectionStore.save(this, "DISCONNECTED", "Credentials saved. Run Test Connection.")
+                    demoMsg.setTextColor(green); demoMsg.text = "Demo credentials saved securely on this device (Stage 2 only)."
+                    toast("Demo credentials saved")
+                } else {
+                    demoMsg.setTextColor(red); demoMsg.text = "Failed to save credentials securely."
+                }
+                refreshDemoStatus()
+            }
+            delBtn.setOnClickListener {
+                AlertDialog.Builder(this).setTitle("Delete Demo Credentials")
+                    .setMessage("Remove stored Binance Futures Demo API credentials from this device?")
+                    .setPositiveButton("DELETE") { _, _ ->
+                        DemoCredentialsStore.clear(this); DemoConnectionStore.clear(this)
+                        apiKeyEt.setText(""); secretEt.setText("")
+                        demoMsg.setTextColor(yellow); demoMsg.text = "Demo credentials cleared."
+                        refreshDemoStatus(); toast("Demo credentials cleared")
+                    }.setNegativeButton("CANCEL", null).show()
+            }
+            testBtn.setOnClickListener {
+                val ak = apiKeyEt.text.toString().trim().ifBlank { DemoCredentialsStore.load(this).apiKey }
+                val sk = secretEt.text.toString().trim().ifBlank { DemoCredentialsStore.load(this).secretKey }
+                if (ak.isBlank() || sk.isBlank()) { demoMsg.setTextColor(red); demoMsg.text = "Save Demo credentials first."; return@setOnClickListener }
+                demoMsg.setTextColor(muted); demoMsg.text = "Testing Binance Futures Demo connection..."
+                lifecycleScope.launch {
+                    val res = demoRepo.testConnection(this@MainActivity)
+                    if (res.ok) { demoMsg.setTextColor(green); demoMsg.text = "Connected to Binance Futures Demo." }
+                    else { demoMsg.setTextColor(red); demoMsg.text = "Connection failed: ${res.error ?: ""Unable to connect""}" }
+                    refreshDemoStatus()
+                }
             }
             refreshDemoStatus()
         }
-        delBtn.setOnClickListener {
-            AlertDialog.Builder(this).setTitle("Delete Demo Credentials")
-                .setMessage("Remove stored Binance Futures Demo API credentials from this device?")
-                .setPositiveButton("DELETE") { _, _ ->
-                    DemoCredentialsStore.clear(this); DemoConnectionStore.clear(this)
-                    apiKeyEt.setText(""); secretEt.setText("")
-                    demoMsg.setTextColor(yellow); demoMsg.text = "Demo credentials cleared."
-                    refreshDemoStatus(); toast("Demo credentials cleared")
-                }.setNegativeButton("CANCEL", null).show()
-        }
-        testBtn.setOnClickListener {
-            val ak = apiKeyEt.text.toString().trim().ifBlank { DemoCredentialsStore.load(this).apiKey }
-            val sk = secretEt.text.toString().trim().ifBlank { DemoCredentialsStore.load(this).secretKey }
-            if (ak.isBlank() || sk.isBlank()) { demoMsg.setTextColor(red); demoMsg.text = "Save Demo credentials first."; return@setOnClickListener }
-            demoMsg.setTextColor(muted); demoMsg.text = "Testing Binance Futures Demo connection..."
-            lifecycleScope.launch {
-                val res = demoRepo.testConnection(this@MainActivity)
-                if (res.ok) { demoMsg.setTextColor(green); demoMsg.text = "Connected to Binance Futures Demo." }
-                else { demoMsg.setTextColor(red); demoMsg.text = "Connection failed: ${res.error ?: "Unable to connect"}" }
-                refreshDemoStatus()
-            }
-        }
-        refreshDemoStatus()
-
-        // ---- Save APK ----
-        val apkCard = addCard(root, "SAVE APK", "Save a copy of the currently installed app APK to device storage. Does not change trading settings or account data.")
-        val apkMsg = text("", 12f, muted); apkCard.addView(apkMsg)
-        addButton(apkCard, "SAVE APK COPY", yellow).setOnClickListener {
-            val res = saveInstalledApkCopy()
-            if (res.first) { apkMsg.setTextColor(green); apkMsg.text = "Saved APK: ${res.second}"; toast("APK saved") }
-            else { apkMsg.setTextColor(red); apkMsg.text = "Save failed: ${res.second}" }
-        }
     }
 
-    private fun saveInstalledApkCopy(): Pair<Boolean, String> {
-        return try {
-            val src = File(applicationInfo.sourceDir)
-            if (!src.exists()) return false to "Installed APK source not found"
-            val outDir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
-            if (!outDir.exists()) outDir.mkdirs()
-            val name = "BAB-Stage2-v${BuildConfig.VERSION_NAME}-${BuildConfig.VERSION_CODE}.apk"
-            val out = File(outDir, name)
-            FileInputStream(src).use { input -> FileOutputStream(out).use { output -> input.copyTo(output) } }
-            true to out.absolutePath
-        } catch (e: Exception) {
-            false to (e.message?.take(120) ?: "Unable to save APK")
-        }
-    }
+    // Save APK functionality removed from app UI (APK distribution handled via GitHub Actions).
 
 
     // ---------------- MORE ----------------
     private fun morePage() {
         val root = pageContainer()
         root.addView(text("More", 23f, white, true))
-        root.addView(text("BAB system status, wallet, and safety information", 12f, muted))
-        val phases = addCard(root, "TRADING STAGES (INDEPENDENT)", "Stage data is isolated. Stage 3 remains disabled; Stage 2 uses Binance Futures Demo credentials only.")
-        TradingStage.entries.forEach { stg ->
-            val active = stage() == stg
-            val desc = when (stg) {
-                TradingStage.STAGE_1 -> "Live USDT-M prices + local virtual 100 USDT. Simulated execution only (no authenticated Binance orders)."
-                TradingStage.STAGE_2 -> "Binance USDⓈ-M Futures Demo (https://demo-fapi.binance.com). Actual Demo account/wallet/orders/positions when configured; LIMIT orders submitted to Binance Demo. Stage 1 local simulation state is separate."
-                TradingStage.STAGE_3 -> "Live Binance USDT-M (scaffold). Disabled by default and isolated. No live trading in this build."
-            }
-            addSpace(phases, 6)
-            phases.addView(text("${stg.title}${if (active) " - ACTIVE" else ""}", 13f, if (active && stg!=TradingStage.STAGE_3) green else if (active) red else muted, true))
-            phases.addView(text(desc, 11f, muted))
+
+
+    // ---------------- MORE ----------------
+    private fun morePage() {
+        val root = pageContainer()
+        root.addView(text("More", 22f, white, true))
+        addSpace(root, 4)
+
+        fun statusDot(color: Int): TextView = text("â—", 12f, color, true).apply { setPadding(0, 0, dp(6), 0) }
+        fun statusRow(label: String, value: String, valueColor: Int): LinearLayout {
+            val r = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
+            r.addView(text(label, 12f, muted), LinearLayout.LayoutParams(0, -2, 1f))
+            r.addView(text(value, 12f, valueColor, true).apply { gravity = Gravity.END; textAlignment = View.TEXT_ALIGNMENT_VIEW_END })
+            return r
         }
-        val info = addCard(root, "SYSTEM INFORMATION")
-        addLabel(info, "Application", "BAB - Binance Android Bot")
-        addLabel(info, "Version", BuildConfig.VERSION_NAME)
-        addLabel(info, "Stage 1 Orders", "SIMULATED ONLY (no authenticated Binance orders)", green)
-        addLabel(info, "Stage 2 Orders", "Binance USDⓈ-M Futures Demo API (Demo credentials only)", yellow)
-        addLabel(info, "Stage 3 Live", "DISABLED BY DEFAULT", red)
-        addLabel(info, "Market Data", "Binance public USDT-M endpoints (read-only)", muted)
-        if (stage() == TradingStage.STAGE_2) {
-            addLabel(info, "Demo Connection", DemoConnectionStore.status(this), if (DemoConnectionStore.status(this)=="CONNECTED") green else if (DemoConnectionStore.status(this)=="ERROR") red else muted)
-            addLabel(info, "Demo Credentials", if (DemoCredentialsStore.hasCredentials(this)) "Configured (encrypted on-device)" else "Not configured", if (DemoCredentialsStore.hasCredentials(this)) green else red)
+        fun expandableSection(title: String, initiallyExpanded: Boolean = false): Pair<LinearLayout, LinearLayout> {
+            val cardView = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = rounded(this@MainActivity.card, 14)
+                setPadding(dp(14), dp(10), dp(14), dp(10))
+            }
+            root.addView(cardView, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+            val header = row().apply { gravity = Gravity.CENTER_VERTICAL; isClickable = true; isFocusable = true }
+            val titleTv = text(title, 14f, yellow, true)
+            val arrow = text(if (initiallyExpanded) "â–¾" else "â–¸", 14f, muted, true)
+            header.addView(titleTv, LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(arrow)
+            val content = column().apply { visibility = if (initiallyExpanded) View.VISIBLE else View.GONE; setPadding(0, dp(8), 0, 0) }
+            header.setOnClickListener {
+                val expanded = content.visibility == View.VISIBLE
+                content.visibility = if (expanded) View.GONE else View.VISIBLE
+                arrow.text = if (expanded) "â–¸" else "â–¾"
+            }
+            cardView.addView(header)
+            cardView.addView(content)
+            return cardView to content
         }
 
-        val s = stage()
-        if (s == TradingStage.STAGE_1) {
-            addButton(addCard(root, "WALLET (${s.shortLabel})"), "RESET ${s.shortLabel} VIRTUAL WALLET TO 100 USDT", 0xFF3A2E16.toInt()).setOnClickListener {
-                AlertDialog.Builder(this).setTitle("Reset ${s.shortLabel} wallet?")
-                    .setMessage("Resets ${s.shortLabel} simulated balance to 100.0000 USDT.")
-                    .setPositiveButton("RESET") { _, _ -> lifecycleScope.launch { engine().resetDemo(); toast("${s.shortLabel} wallet reset"); showPage("More") } }
-                    .setNegativeButton("CANCEL", null).show()
-            }
-        } else if (s == TradingStage.STAGE_2) {
-            addButton(addCard(root, "BINANCE DEMO (STAGE 2)"), "SYNC DEMO ACCOUNT / ORDERS / POSITIONS", yellow).setOnClickListener {
+        val activeStage = stage()
+
+        // 1. System Information
+        val (_, sys) = expandableSection("System Information", true)
+        sys.addView(statusRow("Application Name", "Binance Android Bot", white))
+        sys.addView(statusRow("Application Version", BuildConfig.VERSION_NAME, white))
+        sys.addView(statusRow("Build Number", BuildConfig.VERSION_CODE.toString(), white))
+        sys.addView(statusRow("Build Type", if (BuildConfig.DEBUG) "Debug" else "Release", white))
+
+        // 2. Current Trading Stage
+        val (_, stgSec) = expandableSection("Current Trading Stage", true)
+        val stTitle = when (activeStage) {
+            TradingStage.STAGE_1 -> "Stage 1 â€” Virtual Trading"
+            TradingStage.STAGE_2 -> "Stage 2 â€” Binance Demo Trading"
+            TradingStage.STAGE_3 -> "Stage 3 â€” Live Trading"
+        }
+        val stDesc = when (activeStage) {
+            TradingStage.STAGE_1 -> "Live market data with local virtual wallet (5,000 USDT). Simulated execution only. No real Binance orders."
+            TradingStage.STAGE_2 -> "Binance USDâ“ˆ-M Futures Demo (demo-fapi). Actual Demo account/orders when configured. Demo credentials only; never Live."
+            TradingStage.STAGE_3 -> "Live trading is disabled in this build. Requires deliberate activation and authorized secure Live API integration (not enabled)."
+        }
+        val stRow = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(6)) }
+        stRow.addView(statusDot(if (activeStage == TradingStage.STAGE_3) red else green))
+        stRow.addView(text(stTitle, 13f, white, true))
+        stgSec.addView(stRow)
+        stgSec.addView(text("Active stage: ${activeStage.shortLabel}", 11f, if (activeStage == TradingStage.STAGE_3) red else green, true))
+        addSpace(stgSec, 4)
+        stgSec.addView(text(stDesc, 12f, muted))
+
+        // 3. Connection Status
+        val (_, connSec) = expandableSection("Connection Status", true)
+        val marketOk = (lastOverview?.dataAvailable == true)
+        val marketStale = (lastOverview?.stale == true)
+        val marketStatus = when {
+            lastOverview == null -> "Loading"
+            marketOk && !marketStale -> "Connected"
+            marketOk && marketStale -> "Stale"
+            else -> "Disconnected"
+        }
+        val marketColor = when (marketStatus) { "Connected" -> green; "Stale" -> yellow; "Loading" -> muted; else -> red }
+        val lastUpdateText = lastOverview?.lastUpdate?.takeIf { it.isNotBlank() } ?: "Not available"
+        connSec.addView(statusRow("Binance Market Data", marketStatus, marketColor))
+        if (activeStage == TradingStage.STAGE_2) {
+            val demoSt = DemoConnectionStore.status(this)
+            val demoColor = when (demoSt) { "CONNECTED" -> green; "ERROR" -> red; else -> muted }
+            val demoLabel = if (demoSt == "CONNECTED") "Connected" else if (demoSt == "ERROR") "Error" else "Disconnected"
+            connSec.addView(statusRow("Binance Demo API", demoLabel, demoColor))
+            val demoMsg = DemoConnectionStore.message(this)
+            if (demoMsg.isNotBlank()) connSec.addView(text(demoMsg, 11f, muted))
+        }
+        connSec.addView(statusRow("Last Successful Data Update", lastUpdateText, white))
+        if (activeStage != TradingStage.STAGE_2) {
+            connSec.addView(text("Demo API connection status is shown in Stage 2 only.", 11f, muted))
+        }
+
+        // 4. Wallet Management
+        val (_, walletSec) = expandableSection("Wallet Management", true)
+        when (activeStage) {
+            TradingStage.STAGE_1 -> {
+                val balTv = text("Loading virtual wallet...", 12f, muted)
+                val startTv = text("Starting Virtual Wallet Balance: 5,000.00 USDT", 12f, white)
+                walletSec.addView(balTv)
+                walletSec.addView(startTv)
                 lifecycleScope.launch {
-                    toast("Syncing Binance Futures Demo...")
-                    val snap = demoRepo.fetchSnapshot(this@MainActivity)
-                    toast(if (snap.ok) "Demo data synced" else (snap.error ?: "Sync failed"))
-                    showPage("More")
+                    try {
+                        val w = engine().getWallet()
+                        balTv.text = "Current Virtual Wallet Balance: ${PriceFormatter.formatUsdt(w.availableBalance + w.reservedMargin)} USDT (Available ${PriceFormatter.formatUsdt(w.availableBalance)} / Reserved ${PriceFormatter.formatUsdt(w.reservedMargin)})"
+                        balTv.setTextColor(white)
+                        startTv.text = "Starting Virtual Wallet Balance: ${PriceFormatter.formatUsdt(w.startingBalance)} USDT"
+                    } catch (_: Exception) {
+                        balTv.text = "Unable to load virtual wallet."
+                        balTv.setTextColor(red)
+                    }
+                }
+                addSpace(walletSec, 6)
+                val resetBtn = addButton(walletSec, "RESET VIRTUAL WALLET", red)
+                resetBtn.setOnClickListener {
+                    AlertDialog.Builder(this).setTitle("Reset Stage 1 Virtual Wallet?")
+                        .setMessage("This will reset Stage 1 virtual wallet to 5,000.00 USDT and clear Stage 1 simulated trading records. This action requires confirmation and does not affect Stage 2 or Stage 3.")
+                        .setNegativeButton("CANCEL", null)
+                        .setPositiveButton("RESET") { _, _ ->
+                            lifecycleScope.launch {
+                                engine().resetDemo(5000.0)
+                                toast("Stage 1 virtual wallet reset to 5,000.00 USDT")
+                                showPage("More")
+                            }
+                        }.show()
                 }
             }
-        } else {
-            addCard(root, "STAGE 3 LIVE TRADING").addView(text("Live Trading is disabled by default. Real Binance order submission is not enabled in this build. No credentials are stored in code.", 12f, red))
+            TradingStage.STAGE_2 -> {
+                val demoBalTv = text("Loading Binance Demo wallet...", 12f, muted)
+                walletSec.addView(demoBalTv)
+                walletSec.addView(text("Source: Binance USDâ“ˆ-M Futures Demo account (not Stage 1 virtual balance).", 11f, muted))
+                lifecycleScope.launch {
+                    try {
+                        val snap = demoRepo.fetchSnapshot(this@MainActivity)
+                        if (snap.ok) {
+                            val avail = snap.availableBalance
+                            val total = snap.totalWalletBalance
+                            demoBalTv.text = "Available Balance: ${avail?.let { PriceFormatter.formatUsdt(it) } ?: "--"} USDT\nTotal Wallet Balance: ${total?.let { PriceFormatter.formatUsdt(it) } ?: "--"} USDT"
+                            demoBalTv.setTextColor(white)
+                        } else {
+                            demoBalTv.text = "Demo wallet unavailable: ${snap.error ?: "Not connected/configured"}"
+                            demoBalTv.setTextColor(red)
+                        }
+                    } catch (_: Exception) {
+                        demoBalTv.text = "Unable to load Binance Demo wallet."
+                        demoBalTv.setTextColor(red)
+                    }
+                }
+                addSpace(walletSec, 6)
+                addButton(walletSec, "SYNC DEMO ACCOUNT", yellow).setOnClickListener {
+                    lifecycleScope.launch { toast("Syncing Binance Futures Demo..."); demoRepo.fetchSnapshot(this@MainActivity); showPage("More") }
+                }
+            }
+            TradingStage.STAGE_3 -> {
+                walletSec.addView(text("Live USDâ“ˆ-M wallet information is not available because Live Trading is disabled and no authorized secure Live API integration is active in this build.", 12f, muted))
+                walletSec.addView(text("No reset action is available for Demo or Live wallets.", 11f, muted))
+            }
         }
+
+        // 5. Trading Safety
+        val (_, safeSec) = expandableSection("Trading Safety", false)
+        val liveStatus = "Disabled" // Stage 3 live trading remains disabled by default/build
+        val apiSecurity = when {
+            activeStage == TradingStage.STAGE_2 && DemoCredentialsStore.hasCredentials(this) -> "Protected (Demo credentials encrypted on-device)"
+            activeStage == TradingStage.STAGE_2 -> "Not Configured (Demo API credentials required)"
+            else -> "Protected (no Demo/Live credentials used by this stage)"
+        }
+        safeSec.addView(statusRow("Trading Stage Isolation", "Enabled", green))
+        safeSec.addView(statusRow("Live Trading Status", liveStatus, if (liveStatus == "Enabled") red else green))
+        safeSec.addView(statusRow("API Security Status", if (apiSecurity.startsWith("Protected")) "Protected" else "Not Configured", if (apiSecurity.startsWith("Protected")) green else yellow))
+        safeSec.addView(text(apiSecurity, 11f, muted))
+        addSpace(safeSec, 4)
+        safeSec.addView(text("â€¢ Stage 1 uses virtual funds only (local simulation). No real Binance orders.", 12f, muted))
+        safeSec.addView(text("â€¢ Stage 2 uses Binance Futures Demo funds/API only. Demo credentials are not used for Live.", 12f, muted))
+        safeSec.addView(text("â€¢ Stage 3 requires deliberate activation and authorized Live API credentials. Live trading is not active in this build.", 12f, muted))
+
+        // 6. About
+        val (_, aboutSec) = expandableSection("About", false)
+        aboutSec.addView(text("About BAB", 13f, white, true))
+        aboutSec.addView(text("Binance Android Bot (BAB) is a multi-stage Binance USDâ“ˆ-M trading app with strict isolation between Virtual, Demo, and Live environments.", 12f, muted))
+        addSpace(aboutSec, 6)
+        aboutSec.addView(statusRow("Application", "BAB - Binance Android Bot", white))
+        aboutSec.addView(statusRow("Version", BuildConfig.VERSION_NAME, white))
+        aboutSec.addView(statusRow("Build", "${BuildConfig.VERSION_CODE} (${if (BuildConfig.DEBUG) "Debug" else "Release"})", white))
+        aboutSec.addView(statusRow("Project", "ansardeo-sco/BAB", white))
     }
+
 
     // ---------------- helpers ----------------
     private fun createDarkSpinnerAdapter(items: List<String>): ArrayAdapter<String> =

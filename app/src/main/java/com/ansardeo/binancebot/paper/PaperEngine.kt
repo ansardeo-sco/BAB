@@ -42,17 +42,17 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         }
     }
 
-    suspend fun resetDemo(starting: Double = 100.0): EngineResult = mutex.withLock {
+    suspend fun resetDemo(starting: Double = if (stage == TradingStage.STAGE_1) 5000.0 else 100.0): EngineResult = mutex.withLock {
         db.withTransaction {
             val now = System.currentTimeMillis()
             dao.upsertWallet(PaperWalletEntity(stage = stage.id, startingBalance = starting, availableBalance = starting, reservedMargin = 0.0, realizedPnl = 0.0, updatedAt = now))
             val msg = when (stage) {
-                TradingStage.STAGE_1 -> "Virtual balance reset to $starting USDT (Stage 1, simulated)."
-                TradingStage.STAGE_2 -> "Demo wallet state reset in BAB scaffold (Stage 2). Real demo balance requires Binance Demo API sync."
+                TradingStage.STAGE_1 -> "Virtual balance reset to ${String.format(java.util.Locale.US, "%.2f", starting)} USDT (Stage 1, simulated)."
+                TradingStage.STAGE_2 -> "Stage 2 uses Binance Futures Demo account balance (not a local virtual wallet)."
                 TradingStage.STAGE_3 -> "Stage 3 is disabled by default; no live balance reset performed."
             }
             dao.insertEvent(PaperEventEntity(stage = stage.id, cycleId = null, symbol = null, type = "RESET", message = msg, dedupeKey = "reset-${stage.id}-$now"))
-            EngineResult(stage != TradingStage.STAGE_3, msg)
+            EngineResult(stage == TradingStage.STAGE_1, msg)
         }
     }
 
@@ -496,7 +496,10 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         return open.sumOf { (it.fillPrice ?: 0.0) * it.remainingQuantity } / qty
     }
 
-    private suspend fun ensureWallet(): PaperWalletEntity = dao.getWallet(stage.id) ?: PaperWalletEntity(stage = stage.id).also { dao.upsertWallet(it) }
+    private suspend fun ensureWallet(): PaperWalletEntity = dao.getWallet(stage.id) ?: run {
+        val starting = if (stage == TradingStage.STAGE_1) 5000.0 else 100.0
+        PaperWalletEntity(stage = stage.id, startingBalance = starting, availableBalance = starting).also { dao.upsertWallet(it) }
+    }
 
     companion object {
         fun calcSl(direction: String, entry: Double, pct: Double): Double = if (direction == "LONG") entry * (1 - pct / 100.0) else entry * (1 + pct / 100.0)

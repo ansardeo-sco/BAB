@@ -10,8 +10,8 @@ import androidx.room.PrimaryKey
 )
 data class PaperWalletEntity(
     @PrimaryKey val stage: String = "STAGE_1",
-    val startingBalance: Double = 100.0,
-    val availableBalance: Double = 100.0,
+    val startingBalance: Double = 5000.0,
+    val availableBalance: Double = 5000.0,
     val reservedMargin: Double = 0.0,
     val realizedPnl: Double = 0.0,
     val updatedAt: Long = System.currentTimeMillis(),
