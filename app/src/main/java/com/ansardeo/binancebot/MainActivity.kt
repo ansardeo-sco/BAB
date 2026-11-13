@@ -836,7 +836,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderDemoPositionsOpen(body: LinearLayout, snap: DemoStageRepository.DemoSnapshot) {
+    private suspend fun renderDemoPositionsOpen(body: LinearLayout, snap: DemoStageRepository.DemoSnapshot) {
         body.removeAllViews()
         if (!snap.ok) { body.addView(text(snap.error ?: "Unable to load Binance Demo data.", 13f, red)); return }
         val posCard = addCard(body, "DEMO POSITIONS (OPEN)", "Actual Binance USDⓈ-M Futures Demo positions. Trailing Stop managed by BAB.")

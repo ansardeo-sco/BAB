@@ -8,6 +8,8 @@ import com.ansardeo.binancebot.data.TradingStage
 import com.ansardeo.binancebot.paper.db.DemoOrderDao
 import com.ansardeo.binancebot.paper.db.DemoOrderEntity
 import com.ansardeo.binancebot.paper.db.PaperHistoryCloseEntity
+import com.ansardeo.binancebot.paper.db.PaperEventEntity
+import com.ansardeo.binancebot.paper.db.PaperReentryPlanEntity
 import com.ansardeo.binancebot.paper.PaperEngine
 import com.ansardeo.binancebot.paper.db.PaperDatabase
 import kotlinx.coroutines.*
