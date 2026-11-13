@@ -7,6 +7,7 @@ import com.ansardeo.binancebot.data.MarketRepository
 import com.ansardeo.binancebot.data.TradingStage
 import com.ansardeo.binancebot.paper.db.DemoOrderDao
 import com.ansardeo.binancebot.paper.db.DemoOrderEntity
+import com.ansardeo.binancebot.paper.db.PaperHistoryCloseEntity
 import com.ansardeo.binancebot.paper.PaperEngine
 import com.ansardeo.binancebot.paper.db.PaperDatabase
 import kotlinx.coroutines.*
@@ -106,7 +107,7 @@ object DemoStrategyMonitor {
                             val filledQty = if (filledQty > 0) filledQty else rec.quantity
                             val exitPrice = avgPrice ?: entry.trailingStopPrice ?: rec.triggerPrice
                             val gross = PaperEngine.realizedPnl(entry.direction, entry.fillPrice ?: exitPrice, exitPrice, filledQty)
-                            val marginPart = entry.margin * (filledQty / max(entry.filledQuantity, 1e-12))
+                            val marginPart = entry.margin * (filledQty / kotlin.math.max(entry.filledQuantity, 1e-12))
                             val pnl = gross
                             val pnlPct = if (marginPart > 1e-12) (pnl / marginPart) * 100.0 else 0.0
                             val idem = "stage2close|${cycle.id}|${entry.id}|${System.currentTimeMillis()}"
