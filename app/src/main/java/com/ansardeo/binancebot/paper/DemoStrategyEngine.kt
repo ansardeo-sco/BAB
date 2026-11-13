@@ -144,30 +144,28 @@ class DemoStrategyEngine(
 
     private suspend fun closeEntryLocked(context: Context, cycle: PaperCycleEntity, entry: PaperEntryEntity, exitPrice: Double, reason: String, now: Long, triggerReentry: Boolean) {
         if (entry.status != "FILLED" || entry.remainingQuantity <= 1e-12) return
+        // Prevent duplicate exit orders: skip if an open exit order already exists for this entry.
+        val existingExit = demoDao.getOpen(TradingStage.STAGE_2.id).firstOrNull { it.entryId == entry.id && it.orderType == "CLOSE" }
+        if (existingExit != null) return
         val closeQty = entry.remainingQuantity
-        val gross = PaperEngine.realizedPnl(entry.direction, entry.fillPrice ?: exitPrice, exitPrice, closeQty)
-        val marginPart = entry.margin * (closeQty / max(entry.filledQuantity, 1e-12))
-        val pnl = gross
-        val pnlPct = if (marginPart > 1e-12) (pnl / marginPart) * 100.0 else 0.0
-        val idem = "stage2|${cycle.id}|${entry.id}|$reason|${System.currentTimeMillis()}"
-        dao.insertHistoryClose(PaperHistoryCloseEntity(
+        val clientId = "close2-${entry.id}-${System.currentTimeMillis()}-${UUID.randomUUID()}"
+        val side = if (entry.direction == "LONG") "SELL" else "BUY"
+        val qtyStr = com.ansardeo.binancebot.util.PriceFormatter.formatQty(closeQty).trim()
+        // Submit reduce-only MARKET close on Binance Demo.
+        val res = demoRepo.placeMarketOrder(context, cycle.symbol, side, qtyStr, reduceOnly = true, clientOrderId = clientId)
+        val exchangeId = res.data?.optString("orderId")
+        val status = res.data?.optString("status") ?: if (res.ok) "NEW" else "UNKNOWN"
+        demoDao.insert(DemoOrderEntity(
             stage = TradingStage.STAGE_2.id, cycleId = cycle.id, entryId = entry.id, symbol = cycle.symbol,
-            direction = entry.direction, entryFillPrice = entry.fillPrice ?: 0.0, exitFillPrice = exitPrice,
-            entryMargin = marginPart, leverage = entry.leverage, closedQuantity = closeQty,
-            realizedPnlUsdt = pnl, realizedPnlPercent = pnlPct, closingReason = reason,
-            entryTimestamp = entry.filledAt ?: entry.createdAt, exitTimestamp = now, idempotencyKey = idem
+            direction = entry.direction, side = side, orderType = "CLOSE", triggerPrice = exitPrice, limitPrice = null,
+            quantity = closeQty, leverage = entry.leverage, status = status, clientOrderId = clientId,
+            exchangeOrderId = exchangeId, reduceOnly = true
         ))
-        // Close on Binance Demo via reduce-only market order.
-        runCatching {
-            val side = if (entry.direction == "LONG") "SELL" else "BUY"
-            val qtyStr = com.ansardeo.binancebot.util.PriceFormatter.formatQty(closeQty).trim()
-            demoRepo.placeLimitOrder(context, cycle.symbol, side, qtyStr, (exitPrice).toString(), reduceOnly = true)
-        }
-        dao.updateEntry(entry.copy(status = "CLOSED", remainingQuantity = 0.0, closeReason = reason, closedAt = now, updatedAt = now))
-        val remaining = dao.getOpenFilledEntries(cycle.id).sumOf { it.remainingQuantity }
-        dao.updateCycle(cycle.copy(totalRemainingQuantity = remaining, updatedAt = now, closeReason = if (remaining <= 1e-12) reason else cycle.closeReason))
-        dao.insertEvent(PaperEventEntity(stage = TradingStage.STAGE_2.id, cycleId = cycle.id, symbol = cycle.symbol, type = "ENTRY_CLOSED",
-            message = "Stage 2 entry #${entry.id} ${entry.entryType} ${entry.direction} closed by $reason. (No SL in Stage 2 per policy.)", price = exitPrice))
+        // Mark entry as CLOSING (not CLOSED) until fill is confirmed by Binance.
+        dao.updateEntry(entry.copy(status = "CLOSING", closeReason = reason, updatedAt = now))
+        dao.updateCycle(cycle.copy(status = "CLOSING", updatedAt = now))
+        dao.insertEvent(PaperEventEntity(stage = TradingStage.STAGE_2.id, cycleId = cycle.id, symbol = cycle.symbol, type = "EXIT_SUBMITTED",
+            message = "Stage 2 exit submitted ($reason) for entry #${entry.id}: ${if (res.ok) "orderId=$exchangeId" else "FAILED: ${res.error}"}. Awaiting fill confirmation.", price = exitPrice))
         if (triggerReentry && reason == "TRAILING_STOP") {
             createReentryPlansLocked(cycle, exitPrice, now)
         }

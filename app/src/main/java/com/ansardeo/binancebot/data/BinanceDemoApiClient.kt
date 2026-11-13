@@ -100,6 +100,24 @@ class BinanceDemoApiClient(
         } catch (_: Exception) { null }
     }
 
+    suspend fun placeMarketOrder(
+        apiKey: String, secretKey: String,
+        symbol: String, side: String, quantity: String,
+        reduceOnly: Boolean = false, positionSide: String? = null,
+        newClientOrderId: String? = null
+    ): ApiResult<JSONObject> = withContext(Dispatchers.IO) {
+        val params = linkedMapOf(
+            "symbol" to symbol.uppercase(),
+            "side" to side.uppercase(),
+            "type" to "MARKET",
+            "quantity" to quantity,
+            "reduceOnly" to reduceOnly.toString()
+        )
+        if (!positionSide.isNullOrBlank()) params["positionSide"] = positionSide
+        if (!newClientOrderId.isNullOrBlank()) params["newClientOrderId"] = newClientOrderId
+        signedPostResult("/fapi/v1/order", apiKey, secretKey, params)
+    }
+
     suspend fun placeLimitOrder(
         apiKey: String, secretKey: String,
         symbol: String, side: String, quantity: String, price: String,

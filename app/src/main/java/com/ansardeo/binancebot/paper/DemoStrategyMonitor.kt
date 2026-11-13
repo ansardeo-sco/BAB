@@ -7,6 +7,7 @@ import com.ansardeo.binancebot.data.MarketRepository
 import com.ansardeo.binancebot.data.TradingStage
 import com.ansardeo.binancebot.paper.db.DemoOrderDao
 import com.ansardeo.binancebot.paper.db.DemoOrderEntity
+import com.ansardeo.binancebot.paper.PaperEngine
 import com.ansardeo.binancebot.paper.db.PaperDatabase
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -75,6 +76,7 @@ object DemoStrategyMonitor {
         marketRepo: MarketRepository,
         engine: DemoStrategyEngine
     ) {
+        val db = PaperDatabase.get(context)
         val open = dao.getOpen("STAGE_2")
         if (open.isEmpty()) return
         for (rec in open) {
@@ -95,9 +97,34 @@ object DemoStrategyMonitor {
                     filledAt = if (newStatus == "FILLED" && rec.filledAt == null) now else rec.filledAt,
                     updatedAt = now
                 ))
-                if (newStatus == "FILLED" && rec.orderType == "ENTRY_LIMIT" && rec.filledAt == null) {
-                    // Stage 2 policy: NO Stop Loss orders. (Stage 1 SL preserved separately.)
-                    // Trailing stop + averaging/re-entry/opposite handled by DemoStrategyEngine.
+                if (newStatus == "FILLED" && rec.orderType == "CLOSE" && rec.filledAt == null) {
+                    // Confirm exit fill: update entry/cycle/history only after Binance confirms.
+                    runCatching {
+                        val entry = db.dao().getEntry(rec.entryId ?: -1L)
+                        val cycle = if (entry != null) db.dao().getCycle(entry.cycleId) else null
+                        if (entry != null && cycle != null) {
+                            val filledQty = if (filledQty > 0) filledQty else rec.quantity
+                            val exitPrice = avgPrice ?: entry.trailingStopPrice ?: rec.triggerPrice
+                            val gross = PaperEngine.realizedPnl(entry.direction, entry.fillPrice ?: exitPrice, exitPrice, filledQty)
+                            val marginPart = entry.margin * (filledQty / max(entry.filledQuantity, 1e-12))
+                            val pnl = gross
+                            val pnlPct = if (marginPart > 1e-12) (pnl / marginPart) * 100.0 else 0.0
+                            val idem = "stage2close|${cycle.id}|${entry.id}|${System.currentTimeMillis()}"
+                            db.dao().insertHistoryClose(PaperHistoryCloseEntity(
+                                stage = TradingStage.STAGE_2.id, cycleId = cycle.id, entryId = entry.id,
+                                symbol = cycle.symbol, direction = entry.direction,
+                                entryFillPrice = entry.fillPrice ?: 0.0, exitFillPrice = exitPrice,
+                                entryMargin = marginPart, leverage = entry.leverage, closedQuantity = filledQty,
+                                realizedPnlUsdt = pnl, realizedPnlPercent = pnlPct,
+                                closingReason = entry.closeReason ?: "TRAILING_STOP",
+                                entryTimestamp = entry.filledAt ?: entry.createdAt, exitTimestamp = now,
+                                idempotencyKey = idem
+                            ))
+                            db.dao().updateEntry(entry.copy(status = "CLOSED", remainingQuantity = 0.0, closedAt = now, updatedAt = now))
+                            val remaining = db.dao().getOpenFilledEntries(cycle.id).sumOf { it.remainingQuantity }
+                            db.dao().updateCycle(cycle.copy(status = if (remaining <= 1e-12) "CLOSED" else cycle.status, totalRemainingQuantity = remaining, updatedAt = now, closeReason = if (remaining <= 1e-12) (entry.closeReason ?: "TRAILING_STOP") else cycle.closeReason, closedAt = if (remaining <= 1e-12) now else cycle.closedAt))
+                        }
+                    }
                 }
             } catch (_: Exception) {
                 // continue with next order

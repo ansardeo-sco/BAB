@@ -76,6 +76,15 @@ class DemoStageRepository(private val client: BinanceDemoApiClient = BinanceDemo
         client.placeLimitOrder(creds.apiKey, creds.secretKey, symbol, side, quantity, price, reduceOnly = reduceOnly, positionSide = positionSide, newClientOrderId = clientOrderId)
     }
 
+    suspend fun placeMarketOrder(
+        context: Context, symbol: String, side: String, quantity: String,
+        reduceOnly: Boolean = false, positionSide: String? = null, clientOrderId: String? = null
+    ): BinanceDemoApiClient.ApiResult<JSONObject> = withContext(Dispatchers.IO) {
+        val creds = DemoCredentialsStore.load(context)
+        if (!creds.hasBoth) return@withContext BinanceDemoApiClient.ApiResult(false, error = "Demo API credentials are not configured")
+        client.placeMarketOrder(creds.apiKey, creds.secretKey, symbol, side, quantity, reduceOnly = reduceOnly, positionSide = positionSide, newClientOrderId = clientOrderId)
+    }
+
     suspend fun getOrder(context: Context, symbol: String, orderId: Long? = null, clientOrderId: String? = null): BinanceDemoApiClient.ApiResult<JSONObject> = withContext(Dispatchers.IO) {
         val creds = DemoCredentialsStore.load(context)
         if (!creds.hasBoth) return@withContext BinanceDemoApiClient.ApiResult(false, error = "Demo API credentials are not configured")
