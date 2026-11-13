@@ -15,13 +15,5 @@ private val DarkColors = darkColorScheme()
 
 @Composable
 fun BabNextTheme(content: @Composable () -> Unit) {
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            val window = (view.context as Activity).window
-            window.statusBarColor = DarkColors.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
-        }
-    }
     MaterialTheme(colorScheme = DarkColors, content = content)
 }
