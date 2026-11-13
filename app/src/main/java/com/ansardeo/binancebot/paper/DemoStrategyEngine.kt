@@ -7,6 +7,7 @@ import com.ansardeo.binancebot.data.LocalCoinSettings
 import com.ansardeo.binancebot.data.LocalCoinSettingsStore
 import com.ansardeo.binancebot.data.TradingStage
 import com.ansardeo.binancebot.paper.db.*
+import androidx.room.withTransaction
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
@@ -35,13 +36,11 @@ class DemoStrategyEngine(
     private val feeRate = 0.0004
     private val averagingRoiTriggerPercent = 60.0
 
-    suspend fun hasPendingWork(): Boolean = mutex.withLock {
-        db.withTransaction {
-            dao.getActiveCycles(TradingStage.STAGE_2.id).isNotEmpty() ||
-                dao.getPendingReentryPlans(TradingStage.STAGE_2.id).isNotEmpty() ||
-                dao.getActiveOrders(TradingStage.STAGE_2.id).isNotEmpty() ||
-                demoDao.getOpen(TradingStage.STAGE_2.id).isNotEmpty()
-        }
+    suspend fun hasPendingWork(): Boolean {
+        return dao.getActiveCycles(TradingStage.STAGE_2.id).isNotEmpty() ||
+            dao.getPendingReentryPlans(TradingStage.STAGE_2.id).isNotEmpty() ||
+            dao.getActiveOrders(TradingStage.STAGE_2.id).isNotEmpty() ||
+            demoDao.getOpen(TradingStage.STAGE_2.id).isNotEmpty()
     }
 
     /** Detect new Binance Demo positions and register local cycles/entries. */
