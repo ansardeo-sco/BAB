@@ -16,7 +16,7 @@ import androidx.room.RoomDatabase
         PaperReentryPlanEntity::class,
         DemoOrderEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class PaperDatabase : RoomDatabase() {
@@ -25,6 +25,12 @@ abstract class PaperDatabase : RoomDatabase() {
 
     companion object {
         @Volatile private var INSTANCE: PaperDatabase? = null
+
+        private val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE demo_orders ADD COLUMN leverage INTEGER NOT NULL DEFAULT 6")
+            }
+        }
 
         private val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
@@ -68,7 +74,7 @@ abstract class PaperDatabase : RoomDatabase() {
                 PaperDatabase::class.java,
                 "bab_trading.db"
             )
-                .addMigrations(MIGRATION_3_4)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                 // Safe migrations required for schema changes; do not destroy user trading records.
                 .build().also { INSTANCE = it }
         }

@@ -642,7 +642,7 @@ class MainActivity : AppCompatActivity() {
                                             dao.insert(DemoOrderEntity(
                                                 stage = "STAGE_2", symbol = sym, direction = dir, side = side,
                                                 orderType = "ENTRY_LIMIT", triggerPrice = px, limitPrice = px,
-                                                quantity = qty, status = st, clientOrderId = clientId,
+                                                quantity = qty, leverage = lev, status = st, clientOrderId = clientId,
                                                 exchangeOrderId = oid.ifBlank { null }, reduceOnly = false
                                             ))
                                         }
@@ -731,6 +731,111 @@ class MainActivity : AppCompatActivity() {
     private fun fmtDateTime(ts: Long?): String = ts?.let { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(it)) } ?: "--"
 
     // ---------------- FUTURE ----------------
+    private fun renderDemoPositionsPage(body: LinearLayout) {
+        body.removeAllViews()
+        body.addView(text("Stage 2 - Binance USDⓈ-M Futures Demo", 14f, yellow, true))
+        addSpace(body, 4)
+        val statusTv = text("Loading Demo data...", 12f, muted)
+        body.addView(statusTv)
+        lifecycleScope.launch {
+            try {
+                val snap = demoRepo.fetchSnapshot(this@MainActivity)
+                if (!snap.ok) {
+                    statusTv.text = snap.error ?: "Unable to load Binance Demo data. Configure credentials in Settings."
+                    statusTv.setTextColor(red)
+                    return@launch
+                }
+                statusTv.text = "Binance Demo data synchronized."
+                statusTv.setTextColor(green)
+                // Positions
+                val posCard = addCard(body, "DEMO POSITIONS", "Actual Binance USDⓈ-M Futures Demo positions.")
+                val positions = snap.positions
+                if (positions.length() == 0) {
+                    posCard.addView(text("No open Demo positions.", 12f, muted))
+                } else {
+                    for (i in 0 until positions.length()) {
+                        val p = positions.optJSONObject(i) ?: continue
+                        val sym = p.optString("symbol")
+                        val amt = p.optString("positionAmt").toDoubleOrNull() ?: 0.0
+                        if (kotlin.math.abs(amt) <= 1e-12) continue
+                        val side = if (amt > 0) "LONG" else "SHORT"
+                        val entry = p.optString("entryPrice").toDoubleOrNull()
+                        val mark = p.optString("markPrice").toDoubleOrNull()
+                        val pnl = p.optString("unRealizedProfit").toDoubleOrNull()
+                        val lev = p.optString("leverage").toIntOrNull() ?: 0
+                        val box = makeItemCard(posCard)
+                        val h = row()
+                        h.addView(text(sym, 15f, white, true), LinearLayout.LayoutParams(0, -2, 1f))
+                        h.addView(text(side, 12f, if (side == "LONG") green else red, true))
+                        box.addView(h)
+                        addLabel(box, "Quantity", PriceFormatter.formatQty(kotlin.math.abs(amt)), white, true)
+                        addLabel(box, "Entry Price", entry?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+                        addLabel(box, "Mark Price", mark?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+                        addLabel(box, "Unrealized PNL", pnl?.let { PriceFormatter.formatPnl(it) } ?: "--", pnlColor(pnl), true)
+                        addLabel(box, "Leverage", "${lev}x", white, true)
+                    }
+                }
+                // Open orders (basic)
+                val ordCard = addCard(body, "DEMO OPEN ORDERS (BASIC)", "Actual Binance Demo open orders.")
+                val orders = snap.openOrders
+                if (orders.length() == 0) {
+                    ordCard.addView(text("No open Demo orders.", 12f, muted))
+                } else {
+                    for (i in 0 until orders.length()) {
+                        val o = orders.optJSONObject(i) ?: continue
+                        val sym = o.optString("symbol")
+                        val side = o.optString("side")
+                        val type = o.optString("type")
+                        val price = o.optString("price").toDoubleOrNull()
+                        val qty = o.optString("origQty").toDoubleOrNull()
+                        val status = o.optString("status")
+                        val oid = o.optString("orderId")
+                        val box = makeItemCard(ordCard)
+                        val h = row()
+                        h.addView(text("$sym $side", 15f, if (side == "BUY") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+                        h.addView(text(status, 12f, statusBadgeColor(status), true))
+                        box.addView(h)
+                        addLabel(box, "Order Type", type, yellow, true)
+                        addLabel(box, "Order Price", price?.let { PriceFormatter.formatPrice(it) } ?: "--", white, true)
+                        addLabel(box, "Quantity", qty?.let { PriceFormatter.formatQty(it) } ?: "--", white, true)
+                        addLabel(box, "Order ID", oid, muted)
+                    }
+                }
+                // Algo orders (TP/SL)
+                val algoCard = addCard(body, "DEMO OPEN ALGO ORDERS (TP/SL)", "Actual Binance Demo algo/protective orders.")
+                val algos = snap.openAlgoOrders
+                if (algos.length() == 0) {
+                    algoCard.addView(text("No open Demo algo orders.", 12f, muted))
+                } else {
+                    for (i in 0 until algos.length()) {
+                        val a = algos.optJSONObject(i) ?: continue
+                        val sym = a.optString("symbol")
+                        val side = a.optString("side")
+                        val type = a.optString("type")
+                        val trigger = a.optString("triggerPrice").toDoubleOrNull() ?: a.optString("stopPrice").toDoubleOrNull()
+                        val qty = a.optString("quantity").toDoubleOrNull() ?: a.optString("origQty").toDoubleOrNull()
+                        val status = a.optString("algoStatus").ifBlank { a.optString("status") }
+                        val aid = a.optString("algoId").ifBlank { a.optString("orderId") }
+                        val box = makeItemCard(algoCard)
+                        val h = row()
+                        h.addView(text("$sym $side", 15f, if (side == "BUY") green else red, true), LinearLayout.LayoutParams(0, -2, 1f))
+                        h.addView(text(status, 12f, statusBadgeColor(status), true))
+                        box.addView(h)
+                        addLabel(box, "Order Type", type, yellow, true)
+                        addLabel(box, "Trigger Price", trigger?.let { PriceFormatter.formatPrice(it) } ?: "--", red, true)
+                        addLabel(box, "Quantity", qty?.let { PriceFormatter.formatQty(it) } ?: "--", white, true)
+                        addLabel(box, "Algo Order ID", aid, muted)
+                    }
+                }
+                addSpace(body, 8)
+                addButton(body, "REFRESH DEMO DATA", yellow).setOnClickListener { showPage("Future") }
+            } catch (e: Exception) {
+                statusTv.text = "Unable to load Demo data: ${e.message?.take(120)}"
+                statusTv.setTextColor(red)
+            }
+        }
+    }
+
     private fun positionsPage() /* Future tab */ {
         stopRefresh(); updateTopStatus()
         val root = pageContainer()
@@ -739,6 +844,12 @@ class MainActivity : AppCompatActivity() {
         val subBar = row().apply { background = rounded(card, 10); setPadding(dp(4), dp(4), dp(4), dp(4)) }
         root.addView(subBar); addSpace(root, 8)
         val body = column(); root.addView(body)
+
+        if (stage() == TradingStage.STAGE_2) {
+            // Stage 2: show actual Binance Demo positions/open orders instead of empty local simulation.
+            renderDemoPositionsPage(body)
+            return
+        }
 
         var primaryTab = 0 // 0 Position, 1 Open Order, 2 History
         var positionSub = 0 // 0 Open, 1 Closed

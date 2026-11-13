@@ -30,6 +30,7 @@ data class DemoOrderEntity(
     val triggerPrice: Double = 0.0,
     val limitPrice: Double? = null,
     val quantity: Double = 0.0,
+    val leverage: Int = 6,
     val status: String, // PENDING, NEW, PARTIALLY_FILLED, FILLED, CANCELED, REJECTED, EXPIRED, UNKNOWN
     val clientOrderId: String,
     val exchangeOrderId: String? = null,

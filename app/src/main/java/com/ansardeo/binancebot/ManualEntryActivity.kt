@@ -194,7 +194,7 @@ class ManualEntryActivity : AppCompatActivity() {
                                             dao.insert(DemoOrderEntity(
                                                 stage = "STAGE_2", symbol = symbol, direction = dir, side = side,
                                                 orderType = "ENTRY_LIMIT", triggerPrice = px, limitPrice = px,
-                                                quantity = qty, status = st, clientOrderId = clientId,
+                                                quantity = qty, leverage = lev, status = st, clientOrderId = clientId,
                                                 exchangeOrderId = oid.ifBlank { null }, reduceOnly = false
                                             ))
                                         }
