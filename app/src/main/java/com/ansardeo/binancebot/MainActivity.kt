@@ -1277,7 +1277,7 @@ class MainActivity : AppCompatActivity() {
                 val ts = DemoConnectionStore.checkedAt(this)
                 val color = when (st) { "CONNECTED" -> green; "ERROR" -> red; else -> muted }
                 statusLabel.setTextColor(color)
-                statusLabel.text = "Status: $st${if (m.isNotBlank()) " â€” $m" else ""}${if (ts > 0) " (${DemoStageRepository.formatTs(ts)})" else ""}"
+                statusLabel.text = "Status: $st${if (m.isNotBlank()) \" - $m\" else \"\"}${if (ts > 0) \" (${DemoStageRepository.formatTs(ts)})\" else \"\"}"
             }
             demoCard.addView(statusLabel); addSpace(demoCard, 6)
 
