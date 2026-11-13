@@ -12,7 +12,10 @@ enum class TradingStage(val id: String, val title: String, val shortLabel: Strin
     val isLocalSimulation: Boolean get() = this == STAGE_1
     val isDemoTrading: Boolean get() = this == STAGE_2
     val usesLiveMarketPrices: Boolean get() = this == STAGE_1 || this == STAGE_2 || this == STAGE_3
-    val canSubmitRealOrders: Boolean get() = this == STAGE_3 // Live real funds only (disabled)
+    /** Capability flag only; actual live submission is blocked in-app unless explicitly enabled by user. */
+    val supportsRealOrderSubmission: Boolean get() = this == STAGE_3
+    @Deprecated("Use supportsRealOrderSubmission; Stage 3 execution remains disabled by default in-app.")
+    val canSubmitRealOrders: Boolean get() = supportsRealOrderSubmission
 
     companion object {
         fun fromId(id: String?): TradingStage = entries.firstOrNull { it.id == id } ?: STAGE_1

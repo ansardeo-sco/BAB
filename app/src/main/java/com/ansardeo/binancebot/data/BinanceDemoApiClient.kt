@@ -47,6 +47,56 @@ class BinanceDemoApiClient(
     suspend fun getAllOpenAlgoOrders(apiKey: String, secretKey: String, symbol: String? = null): ApiResult<JSONArray> =
         signedArrayResult("/fapi/v1/openAlgoOrders", apiKey, secretKey, if (symbol != null) mapOf("symbol" to symbol.uppercase()) else emptyMap())
 
+    /**
+     * Place an algorithmic (conditional) order on Binance USDⓈ-M Futures Demo.
+     * Supported types include STOP_MARKET, TAKE_PROFIT_MARKET, TRAILING_STOP_MARKET.
+     * Used for per-entry Stop Loss and Take Profit / trailing protection.
+     */
+    suspend fun placeAlgoOrder(
+        apiKey: String, secretKey: String,
+        symbol: String, side: String, type: String, quantity: String? = null,
+        triggerPrice: String? = null, callbackRate: String? = null,
+        reduceOnly: Boolean = false, positionSide: String? = null,
+        newClientOrderId: String? = null, workingType: String = "MARK_PRICE",
+        priceProtect: Boolean = true
+    ): ApiResult<JSONObject> = withContext(Dispatchers.IO) {
+        val params = linkedMapOf(
+            "symbol" to symbol.uppercase(),
+            "side" to side.uppercase(),
+            "type" to type.uppercase(),
+            "workingType" to workingType,
+            "priceProtect" to priceProtect.toString()
+        )
+        if (!quantity.isNullOrBlank()) params["quantity"] = quantity
+        if (!triggerPrice.isNullOrBlank()) params["triggerPrice"] = triggerPrice
+        if (!callbackRate.isNullOrBlank()) params["callbackRate"] = callbackRate
+        params["reduceOnly"] = reduceOnly.toString()
+        if (!positionSide.isNullOrBlank()) params["positionSide"] = positionSide
+        if (!newClientOrderId.isNullOrBlank()) params["newClientOrderId"] = newClientOrderId
+        signedPostResult("/fapi/v1/algoOrder", apiKey, secretKey, params)
+    }
+
+    suspend fun cancelAlgoOrder(apiKey: String, secretKey: String, symbol: String, algoId: Long? = null, clientAlgoId: String? = null): ApiResult<JSONObject> = withContext(Dispatchers.IO) {
+        val params = linkedMapOf("symbol" to symbol.uppercase())
+        if (algoId != null) params["algoId"] = algoId.toString()
+        if (!clientAlgoId.isNullOrBlank()) params["clientAlgoId"] = clientAlgoId
+        signedDeleteResult("/fapi/v1/algoOrder", apiKey, secretKey, params)
+    }
+
+    suspend fun getAlgoOrder(apiKey: String, secretKey: String, symbol: String, algoId: Long? = null, clientAlgoId: String? = null): ApiResult<JSONObject> = withContext(Dispatchers.IO) {
+        val params = linkedMapOf("symbol" to symbol.uppercase())
+        if (algoId != null) params["algoId"] = algoId.toString()
+        if (!clientAlgoId.isNullOrBlank()) params["clientAlgoId"] = clientAlgoId
+        signedResult("/fapi/v1/algoOrder", apiKey, secretKey, params)
+    }
+
+    suspend fun getServerTime(): Long? = withContext(Dispatchers.IO) {
+        try {
+            val text = getText("https://demo-fapi.binance.com/fapi/v1/time")
+            JSONObject(text).optLong("serverTime").takeIf { it > 0 }
+        } catch (_: Exception) { null }
+    }
+
     suspend fun placeLimitOrder(
         apiKey: String, secretKey: String,
         symbol: String, side: String, quantity: String, price: String,

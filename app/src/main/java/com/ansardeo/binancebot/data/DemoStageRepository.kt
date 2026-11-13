@@ -82,6 +82,34 @@ class DemoStageRepository(private val client: BinanceDemoApiClient = BinanceDemo
         client.getOrder(creds.apiKey, creds.secretKey, symbol, orderId, clientOrderId)
     }
 
+    suspend fun placeAlgoOrder(
+        context: Context, symbol: String, side: String, type: String, quantity: String? = null,
+        triggerPrice: String? = null, callbackRate: String? = null, reduceOnly: Boolean = false,
+        positionSide: String? = null, clientAlgoId: String? = null
+    ): BinanceDemoApiClient.ApiResult<JSONObject> = withContext(Dispatchers.IO) {
+        val creds = DemoCredentialsStore.load(context)
+        if (!creds.hasBoth) return@withContext BinanceDemoApiClient.ApiResult(false, error = "Demo API credentials are not configured")
+        client.placeAlgoOrder(creds.apiKey, creds.secretKey, symbol, side, type, quantity, triggerPrice, callbackRate, reduceOnly, positionSide, clientAlgoId)
+    }
+
+    suspend fun cancelAlgoOrder(context: Context, symbol: String, algoId: Long? = null, clientAlgoId: String? = null): BinanceDemoApiClient.ApiResult<JSONObject> = withContext(Dispatchers.IO) {
+        val creds = DemoCredentialsStore.load(context)
+        if (!creds.hasBoth) return@withContext BinanceDemoApiClient.ApiResult(false, error = "Demo API credentials are not configured")
+        client.cancelAlgoOrder(creds.apiKey, creds.secretKey, symbol, algoId, clientAlgoId)
+    }
+
+    suspend fun getAlgoOrder(context: Context, symbol: String, algoId: Long? = null, clientAlgoId: String? = null): BinanceDemoApiClient.ApiResult<JSONObject> = withContext(Dispatchers.IO) {
+        val creds = DemoCredentialsStore.load(context)
+        if (!creds.hasBoth) return@withContext BinanceDemoApiClient.ApiResult(false, error = "Demo API credentials are not configured")
+        client.getAlgoOrder(creds.apiKey, creds.secretKey, symbol, algoId, clientAlgoId)
+    }
+
+    suspend fun cancelOrder(context: Context, symbol: String, orderId: Long? = null, clientOrderId: String? = null): BinanceDemoApiClient.ApiResult<JSONObject> = withContext(Dispatchers.IO) {
+        val creds = DemoCredentialsStore.load(context)
+        if (!creds.hasBoth) return@withContext BinanceDemoApiClient.ApiResult(false, error = "Demo API credentials are not configured")
+        client.cancelOrder(creds.apiKey, creds.secretKey, symbol, orderId, clientOrderId)
+    }
+
     companion object {
         fun formatTs(ts: Long): String = try { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(ts)) } catch (_: Exception) { ts.toString() }
     }

@@ -12,6 +12,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.ansardeo.binancebot.data.*
 import com.ansardeo.binancebot.paper.PaperEngineProvider
+import com.ansardeo.binancebot.paper.db.PaperDatabase
+import com.ansardeo.binancebot.paper.db.DemoOrderEntity
 import com.ansardeo.binancebot.util.PriceFormatter
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
@@ -184,9 +186,48 @@ class ManualEntryActivity : AppCompatActivity() {
                                     val d = apiRes.data
                                     val oid = d?.optString("orderId") ?: d?.optLong("orderId")?.toString() ?: ""
                                     val st = d?.optString("status") ?: "SUBMITTED"
+                                    // Persist Demo order for reconciliation/restart recovery and fill detection.
+                                    val db = PaperDatabase.get(this@ManualEntryActivity)
+                                    val dao = db.demoOrderDao()
+                                    lifecycleScope.launch {
+                                        runCatching {
+                                            dao.insert(DemoOrderEntity(
+                                                stage = "STAGE_2", symbol = symbol, direction = dir, side = side,
+                                                orderType = "ENTRY_LIMIT", triggerPrice = px, limitPrice = px,
+                                                quantity = qty, status = st, clientOrderId = clientId,
+                                                exchangeOrderId = oid.ifBlank { null }, reduceOnly = false
+                                            ))
+                                        }
+                                    }
                                     DemoConnectionStore.save(this@ManualEntryActivity, "CONNECTED", "Last Demo order submitted")
                                     result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, R.color.green))
-                                    result.text = "[OK] Binance Demo LIMIT submitted: $symbol $dir @ $pxStr qty $qtyStr (status=$st${if (oid.isNotBlank()) ", orderId=$oid" else ""})"
+                                    result.text = "[OK] Binance Demo LIMIT submitted: $symbol $dir @ $pxStr qty $qtyStr (status=$st${if (oid.isNotBlank()) ", orderId=$oid" else ""}). Tracking for fills."
+                                    // Poll for fill status in background (does not block UI).
+                                    lifecycleScope.launch {
+                                        var attempts = 0
+                                        while (attempts < 60) {
+                                            kotlinx.coroutines.delay(5000)
+                                            attempts++
+                                            val stRes = demoRepo.getOrder(this@ManualEntryActivity, symbol, clientOrderId = clientId)
+                                            if (stRes.ok) {
+                                                val o = stRes.data ?: org.json.JSONObject()
+                                                val newStatus = o.optString("status", st)
+                                                val filledQty = o.optString("executedQty").toDoubleOrNull() ?: 0.0
+                                                val avgPrice = o.optString("avgPrice").toDoubleOrNull()
+                                                runCatching {
+                                                    dao.getByClientOrderId(clientId)?.let { rec ->
+                                                        dao.update(rec.copy(status = newStatus, filledPrice = avgPrice, filledQuantity = filledQty,
+                                                            filledAt = if (newStatus == "FILLED") System.currentTimeMillis() else rec.filledAt,
+                                                            updatedAt = System.currentTimeMillis()))
+                                                    }
+                                                }
+                                                if (newStatus in setOf("FILLED", "CANCELED", "REJECTED", "EXPIRED", "EXPIRED_IN_MATCH")) {
+                                                    result.text = "[OK] Binance Demo LIMIT $symbol $dir: status=$newStatus${if (filledQty > 0) ", filled=$filledQty" else ""}${if (avgPrice != null) " @ $avgPrice" else ""}"
+                                                    break
+                                                }
+                                            }
+                                        }
+                                    }
                                 } else {
                                     DemoConnectionStore.save(this@ManualEntryActivity, "ERROR", apiRes.error ?: "Order submission failed")
                                     result.setTextColor(ContextCompat.getColor(this@ManualEntryActivity, R.color.red))

@@ -293,11 +293,12 @@ class PaperEngine(private val db: PaperDatabase, val stage: TradingStage = Tradi
         if (roiPct > -averagingRoiTriggerPercent + 1e-9) return
 
         // Cancel existing pending LONG and SHORT entry orders for this symbol/cycle context only (do not close positions, never cancel unrelated orders)
+        // Only cancel pending ENTRY_LIMIT orders belonging to THIS cycle (never unrelated cycles/directions).
         val toCancel = dao.getActiveOrders(stage.id).filter { o ->
             o.symbol.equals(cycle.symbol, ignoreCase = true) &&
+                o.cycleId == cycle.id &&
                 o.orderType == "ENTRY_LIMIT" &&
-                o.status in setOf("ACTIVE", "CANCELLING") &&
-                (o.cycleId == cycle.id || o.direction == "LONG" || o.direction == "SHORT")
+                o.status in setOf("ACTIVE", "CANCELLING")
         }
         var cancelledCount = 0
         toCancel.forEach { o ->
