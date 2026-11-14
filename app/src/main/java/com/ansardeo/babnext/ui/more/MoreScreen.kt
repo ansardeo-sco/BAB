@@ -11,7 +11,7 @@ fun MoreScreen() {
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         Text("More", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(8.dp))
-        Text("BAB-Next — Binance Android Bot (Demo)")
+        Text("BAB-Next — Virtual Trading")
         Text("Version 1.0.0")
         Spacer(Modifier.height(8.dp))
         Text("Risk Controls", style = MaterialTheme.typography.titleMedium)

@@ -28,6 +28,5 @@ fun ManualScreen(vm: ManualViewModel = hiltViewModel()) {
         Spacer(Modifier.height(8.dp))
         Button(onClick = { vm.submitLimitOrder() }, enabled = !s.submitting) { Text(if (s.submitting) "Submitting..." else "Submit LIMIT Order") }
         if (s.status.isNotBlank()) Text(s.status)
-        if (!s.hasCredentials) Text("Configure Demo API credentials in Settings", color = MaterialTheme.colorScheme.error)
     }
 }

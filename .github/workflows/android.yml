@@ -60,6 +60,21 @@ jobs:
           fi
           exit $ec
 
+      - name: Enable Android emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Android persistence and UI tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: gradle --no-daemon --stacktrace connectedDebugAndroidTest
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -68,6 +83,8 @@ jobs:
           path: |
             app/build/test-results/
             app/build/reports/tests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
           if-no-files-found: warn
           retention-days: 7
 

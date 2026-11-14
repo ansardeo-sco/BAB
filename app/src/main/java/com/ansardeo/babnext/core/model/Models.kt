@@ -6,7 +6,7 @@ enum class OrderType { LIMIT, MARKET, STOP, STOP_MARKET, TAKE_PROFIT, TAKE_PROFI
 enum class OrderStatus { NEW, PARTIALLY_FILLED, FILLED, CANCELED, REJECTED, EXPIRED, TRIGGERED }
 enum class CycleStatus { OPEN, TRAILING_ARMED, CLOSED_TRAILING, CLOSED_MANUAL, CLOSED_LIQUIDATION }
 enum class EntryType { INITIAL, AVERAGING, OPPOSITE, REENTRY }
-enum class TradingMode { DEMO, REAL }
+enum class TradingMode { VIRTUAL, DEMO, LIVE }
 enum class PositionMode { ONE_WAY, HEDGE }
 
 data class TradingCycle(

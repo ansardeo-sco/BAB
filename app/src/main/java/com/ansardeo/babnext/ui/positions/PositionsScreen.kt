@@ -21,7 +21,7 @@ fun PositionsScreen() {
                 TabRow(selectedTabIndex = sub) {
                     listOf("Open", "Closed").forEachIndexed { i, t -> Tab(selected = sub == i, onClick = { sub = i }, text = { Text(t) }) }
                 }
-                Text("Open/Closed positions will appear here after Demo trading.", Modifier.padding(16.dp))
+                Text("Open/Closed positions will appear here after virtual trading.", Modifier.padding(16.dp))
             }
             1 -> {
                 var sub by remember { mutableStateOf(0) }
